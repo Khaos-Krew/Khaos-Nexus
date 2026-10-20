@@ -131,6 +131,8 @@ function collectArkRows(registry, env) {
 // lists the official server anyway; NEXUS_CRAFT_PUBLIC_NAME overrides the label.
 // NEXUS_CRAFT_PUBLIC_PACK / NEXUS_CRAFT_PUBLIC_PACK_VERSION name the modpack it runs
 // (optional; the live status ping fills them in when the server advertises a pack).
+// NEXUS_MINECRAFT_PUBLIC_SERVERS is an optional JSON array of additional public
+// Minecraft servers. Each entry is its own row. Invalid JSON is logged and ignored.
 function envCraftPack(env = {}) {
   return {
     pack: safePublicText(clean(env.NEXUS_CRAFT_PUBLIC_PACK, 80)),
@@ -154,6 +156,122 @@ function envCraftRow(env = {}) {
   };
 }
 
+function minecraftEnvSlug(name) {
+  const slug = clean(name, 80).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+  return slug || 'server';
+}
+
+function minecraftEnvId(name, used) {
+  const slug = minecraftEnvSlug(name);
+  let id = `minecraft:env:${slug}`;
+  let suffix = 2;
+  while (used.has(id)) {
+    id = `minecraft:env:${slug}-${suffix}`;
+    suffix += 1;
+  }
+  used.add(id);
+  return id;
+}
+
+function joinAddress(join) {
+  return clean(join, 200).replace(/^(Java|Bedrock)\s+/i, '').toLowerCase();
+}
+
+function parseMinecraftPublicServers(raw) {
+  if (typeof raw !== 'string') {
+    if (raw === undefined || raw === null) return [];
+    console.warn('[Nexus Sentinal] NEXUS_MINECRAFT_PUBLIC_SERVERS must be a JSON array and was ignored.');
+    return [];
+  }
+  const text = raw.trim();
+  if (!text) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    const message = String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200);
+    console.warn(`[Nexus Sentinal] NEXUS_MINECRAFT_PUBLIC_SERVERS is invalid JSON and was ignored: ${message}`);
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    console.warn('[Nexus Sentinal] NEXUS_MINECRAFT_PUBLIC_SERVERS must be a JSON array and was ignored.');
+    return [];
+  }
+  return parsed;
+}
+
+function minecraftPublicEntry(entry) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  if (typeof entry.name !== 'string') return null;
+  const name = clean(entry.name, 80);
+  if (!name) return null;
+  const requested = typeof entry.kind === 'string' ? clean(entry.kind, 40).toLowerCase() : '';
+  const kind = requested || 'java';
+  const host = typeof entry.host === 'string' || typeof entry.host === 'number' ? entry.host : '';
+  const named = minecraftJoins({
+    kind,
+    host,
+    javaPort: entry.javaPort,
+    bedrockPort: entry.bedrockPort
+  });
+  const joins = named.joins.filter((join) => safePublicText(join));
+  if (!joins.length) return null;
+  return {
+    game: 'Minecraft',
+    name,
+    kind: named.kind,
+    joins
+  };
+}
+
+function envMinecraftPublicRows(env = {}) {
+  let entries = [];
+  try {
+    entries = parseMinecraftPublicServers(env.NEXUS_MINECRAFT_PUBLIC_SERVERS);
+  } catch (error) {
+    const message = String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200);
+    console.warn(`[Nexus Sentinal] NEXUS_MINECRAFT_PUBLIC_SERVERS was ignored: ${message}`);
+    return [];
+  }
+  const rows = [];
+  for (const entry of entries) {
+    try {
+      const row = minecraftPublicEntry(entry);
+      if (row) rows.push(row);
+    } catch (error) {
+      const message = String(error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200);
+      console.warn(`[Nexus Sentinal] NEXUS_MINECRAFT_PUBLIC_SERVERS entry was ignored: ${message}`);
+    }
+  }
+  return rows;
+}
+
+function appendEnvMinecraftRows(rows, env) {
+  const names = new Set();
+  const addresses = new Set();
+  const usedIds = new Set();
+  for (const row of rows) {
+    const id = clean(row.id, 80);
+    if (id) usedIds.add(id);
+    if (clean(row.game, 80).toLowerCase() !== 'minecraft') continue;
+    const name = clean(row.name, 80).toLowerCase();
+    if (name) names.add(name);
+    for (const join of row.joins || []) {
+      const address = joinAddress(join);
+      if (address) addresses.add(address);
+    }
+  }
+  for (const extra of envMinecraftPublicRows(env)) {
+    const name = clean(extra.name, 80).toLowerCase();
+    if (!name || names.has(name)) continue;
+    const extraAddresses = (extra.joins || []).map(joinAddress).filter(Boolean);
+    if (extraAddresses.some((address) => addresses.has(address))) continue;
+    names.add(name);
+    for (const address of extraAddresses) addresses.add(address);
+    rows.push({ ...extra, id: minecraftEnvId(extra.name, usedIds) });
+  }
+}
+
 function collectCraftRows(store, env = {}) {
   const rows = [];
   const panel = store && typeof store.getStatusPanel === 'function' ? store.getStatusPanel() : null;
@@ -161,7 +279,10 @@ function collectCraftRows(store, env = {}) {
     const fallback = envCraftRow(env);
     if (fallback) rows.push(fallback);
   }
-  if (!store || typeof store.getStatusPanel !== 'function') return rows;
+  if (!store || typeof store.getStatusPanel !== 'function') {
+    appendEnvMinecraftRows(rows, env);
+    return rows;
+  }
   if (panel?.host) {
     const named = minecraftJoins(panel);
     rows.push({
@@ -185,6 +306,7 @@ function collectCraftRows(store, env = {}) {
       joins: []
     });
   }
+  appendEnvMinecraftRows(rows, env);
   return rows;
 }
 
