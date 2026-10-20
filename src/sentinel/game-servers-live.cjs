@@ -69,8 +69,9 @@ function parsePlayers(value = '') {
 // Live inventory row -> the server shape renderGameServersPanel already draws.
 function livePanelServer(row = {}) {
   const status = clean(row.status, 20).toLowerCase();
-  const joinInfo = row.kind === 'realm' ? 'Apply on the Realms board.' : (row.joins || []).map((join) => clean(join, 120)).filter(Boolean).join(' • ');
-  return {
+  const joins = (row.joins || []).map((join) => clean(join, 200)).filter(Boolean).slice(0, 4);
+  const joinInfo = row.kind === 'realm' ? 'Apply on the Realms board.' : joins.map((join) => clean(join, 120)).filter(Boolean).join(' • ');
+  const server = {
     id: clean(row.id, 80),
     moduleId: moduleIdFor(row.game),
     game: clean(row.game, 80),
@@ -79,9 +80,21 @@ function livePanelServer(row = {}) {
     trackingState: ['online', 'offline', 'maintenance'].includes(status) ? status : 'listed',
     ...parsePlayers(row.players),
     ...Object.fromEntries(['pack', 'packVersion', 'mcVersion', 'loader'].map((field) => [field, clean(row[field], field === 'pack' ? 80 : 40)]).filter(([, value]) => value)),
+    ...(joins.length ? { joins } : {}),
     ...(joinInfo ? { joinInfo } : {}),
     ...(clean(row.description, 240) ? { description: clean(row.description, 240) } : {})
   };
+  if (Array.isArray(row.servers) && row.servers.length) {
+    server.servers = row.servers.map((child) => livePanelServer(child)).filter((child) => child.game && child.name);
+    delete server.joinInfo;
+    delete server.joins;
+    delete server.pack;
+    delete server.packVersion;
+    delete server.mcVersion;
+    delete server.loader;
+    delete server.description;
+  }
+  return server;
 }
 
 // Live rows first (they carry the real status), then /server add registry
@@ -110,7 +123,7 @@ function mergePanelServers(liveRows = [], registryServers = []) {
       region: entry.region || current.region,
       scenario: entry.scenario || current.scenario,
       description: current.description || entry.description,
-      joinInfo: current.joinInfo || entry.joinInfo
+      joinInfo: current.servers?.length ? '' : (current.joinInfo || entry.joinInfo)
     });
   }
   return [...merged.values()].sort((a, b) => String(a.game || '').localeCompare(String(b.game || '')) || String(a.name || '').localeCompare(String(b.name || '')));

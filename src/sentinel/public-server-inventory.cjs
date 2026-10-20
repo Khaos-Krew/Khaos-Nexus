@@ -80,15 +80,11 @@ function minecraftJoins(panel) {
   return { kind, joins };
 }
 
-function pushRow(rows, seen, row) {
+function copyPublicRow(row) {
   const game = clean(row.game, 80);
   const name = clean(row.name, 80);
-  if (!game || !name) return;
-  const key = keyOf(game, name);
-  if (seen.has(key)) return;
-  seen.add(key);
-  rows.push({
-    id: clean(row.id, 80) || key,
+  const copy = {
+    id: clean(row.id, 80) || keyOf(game, name),
     game,
     name,
     kind: clean(row.kind, 40),
@@ -98,7 +94,28 @@ function pushRow(rows, seen, row) {
     players: clean(row.players, 40),
     pack: clean(row.pack, 80),
     packVersion: clean(row.packVersion, 40)
-  });
+  };
+  const port = Number(row.probePort);
+  const host = clean(row.probeHost, 255);
+  if (host && Number.isInteger(port) && port >= 1 && port <= 65535) {
+    copy.probeHost = host;
+    copy.probePort = port;
+    copy.probeKind = row.probeKind === 'bedrock' ? 'bedrock' : 'java';
+  }
+  if (Array.isArray(row.servers) && row.servers.length) {
+    copy.servers = row.servers.slice(0, 12).map((child) => copyPublicRow(child)).filter((child) => child.game && child.name);
+  }
+  return copy;
+}
+
+function pushRow(rows, seen, row) {
+  const game = clean(row.game, 80);
+  const name = clean(row.name, 80);
+  if (!game || !name) return;
+  const key = keyOf(game, name);
+  if (seen.has(key)) return;
+  seen.add(key);
+  rows.push(copyPublicRow({ ...row, game, name }));
 }
 
 function collectArkRows(registry, env) {
@@ -132,7 +149,11 @@ function collectArkRows(registry, env) {
 // NEXUS_CRAFT_PUBLIC_PACK / NEXUS_CRAFT_PUBLIC_PACK_VERSION name the modpack it runs
 // (optional; the live status ping fills them in when the server advertises a pack).
 // NEXUS_MINECRAFT_PUBLIC_SERVERS is an optional JSON array of additional public
-// Minecraft servers. Each entry is its own row. Invalid JSON is logged and ignored.
+// Minecraft servers. Entries group under the Nexus Craft row unless group is
+// set to something other than "nexus-craft". A host-less entry names the
+// existing NEXUS_CRAFT_PUBLIC_JOIN line. bedrockJoin, when set, is the Bedrock
+// join text (a URL is fine) and is not used for the status ping. Invalid JSON
+// is logged and ignored. When the env var is unset, the single join row is unchanged.
 function envCraftPack(env = {}) {
   return {
     pack: safePublicText(clean(env.NEXUS_CRAFT_PUBLIC_PACK, 80)),
@@ -177,6 +198,74 @@ function joinAddress(join) {
   return clean(join, 200).replace(/^(Java|Bedrock)\s+/i, '').toLowerCase();
 }
 
+function rowAddresses(row) {
+  return (row?.joins || []).map(joinAddress).filter(Boolean);
+}
+
+function addressesOverlap(left, right) {
+  const known = new Set(rowAddresses(left));
+  return rowAddresses(right).some((address) => known.has(address));
+}
+
+function integerPort(value) {
+  const port = Number(value);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 0;
+}
+
+function minecraftPublicGroup(entry) {
+  if (!Object.prototype.hasOwnProperty.call(entry, 'group') || entry.group === undefined || entry.group === null) return 'nexus-craft';
+  if (typeof entry.group !== 'string') return 'nexus-craft';
+  return clean(entry.group, 40).toLowerCase() === 'nexus-craft' ? 'nexus-craft' : '';
+}
+
+function customBedrockJoin(value) {
+  if (typeof value !== 'string') return '';
+  const text = clean(value, 200)
+    .replace(/^bedrock\s+/i, '')
+    .replace(/@(?=everyone|here)/gi, '\uff20')
+    .replace(/<@/g, '<\uff20')
+    .replace(/<#/g, '<\uff03');
+  if (!text || !safePublicText(text)) return '';
+  return `Bedrock ${text}`;
+}
+
+function withBedrockJoin(joins, bedrockJoin) {
+  const custom = customBedrockJoin(bedrockJoin);
+  if (!custom) return joins;
+  return [...joins.filter((join) => !join.startsWith('Bedrock ')), custom].slice(0, 4);
+}
+
+function probeFromJoins(kind, joins) {
+  const list = Array.isArray(joins) ? joins : [];
+  const java = list.find((join) => join.startsWith('Java '));
+  const bedrock = list.find((join) => join.startsWith('Bedrock '));
+  const chosen = kind === 'bedrock' ? bedrock : (java || bedrock);
+  if (!chosen) return {};
+  const address = chosen.replace(/^(Java|Bedrock)\s+/, '');
+  if (address.includes('://')) return {};
+  const split = address.lastIndexOf(':');
+  if (split < 1) return {};
+  const host = address.slice(0, split);
+  const port = Number(address.slice(split + 1));
+  if (!host || host.includes('/') || !Number.isInteger(port) || port < 1 || port > 65535) return {};
+  return { probeHost: host, probePort: port, probeKind: kind === 'bedrock' ? 'bedrock' : 'java' };
+}
+
+function craftSubLabel(craft, parentName, overrideName) {
+  const override = clean(overrideName, 80);
+  if (override) return override;
+  const pack = clean(craft.pack, 80);
+  if (pack) return pack;
+  const own = clean(craft.name, 80);
+  if (own && own.toLowerCase() !== clean(parentName, 80).toLowerCase()) return own;
+  return 'Minecraft';
+}
+
+function nexusCraftTitle(craft, env) {
+  if (craft && craft.id === 'minecraft:env' && clean(craft.name, 80)) return clean(craft.name, 80);
+  return clean(env.NEXUS_CRAFT_PUBLIC_NAME, 80) || 'Nexus Craft';
+}
+
 function parseMinecraftPublicServers(raw) {
   if (typeof raw !== 'string') {
     if (raw === undefined || raw === null) return [];
@@ -205,6 +294,7 @@ function minecraftPublicEntry(entry) {
   if (typeof entry.name !== 'string') return null;
   const name = clean(entry.name, 80);
   if (!name) return null;
+  const group = minecraftPublicGroup(entry);
   const requested = typeof entry.kind === 'string' ? clean(entry.kind, 40).toLowerCase() : '';
   const kind = requested || 'java';
   const host = typeof entry.host === 'string' || typeof entry.host === 'number' ? entry.host : '';
@@ -214,13 +304,26 @@ function minecraftPublicEntry(entry) {
     javaPort: entry.javaPort,
     bedrockPort: entry.bedrockPort
   });
-  const joins = named.joins.filter((join) => safePublicText(join));
-  if (!joins.length) return null;
+  const bedrockText = customBedrockJoin(entry.bedrockJoin);
+  const joins = withBedrockJoin(named.joins.filter((join) => safePublicText(join)), entry.bedrockJoin);
+  const probeHost = clean(host, 255);
+  const javaPort = integerPort(entry.javaPort);
+  const bedrockPort = integerPort(entry.bedrockPort);
+  let probe = {};
+  if (probeHost && javaPort && (named.kind !== 'bedrock' || bedrockText)) probe = { probeHost, probePort: javaPort, probeKind: 'java' };
+  else if (probeHost && named.kind === 'bedrock' && bedrockPort) probe = { probeHost, probePort: bedrockPort, probeKind: 'bedrock' };
+  if (!joins.length) {
+    if (group !== 'nexus-craft') return null;
+    return { game: 'Minecraft', name, kind: 'java', joins: [], group, labelOnly: true };
+  }
   return {
     game: 'Minecraft',
     name,
     kind: named.kind,
-    joins
+    joins,
+    group,
+    labelOnly: false,
+    ...probe
   };
 }
 
@@ -246,7 +349,65 @@ function envMinecraftPublicRows(env = {}) {
   return rows;
 }
 
+function foldNexusCraftGroup(rows, grouped, env) {
+  const members = grouped.filter((entry) => entry && entry.group === 'nexus-craft');
+  if (!members.length) return;
+  const index = rows.findIndex((row) => row.id === 'minecraft:env' || row.id === 'minecraft:panel');
+  const craft = index >= 0 ? rows[index] : null;
+  const title = nexusCraftTitle(craft, env);
+  const labelOnly = members.find((entry) => entry.labelOnly);
+  const children = [];
+  const usedIds = new Set(rows.map((row) => clean(row.id, 80)).filter(Boolean));
+  if (craft && rowAddresses(craft).length) {
+    const child = {
+      id: 'minecraft:env:join',
+      game: 'Minecraft',
+      name: craftSubLabel(craft, title, labelOnly ? labelOnly.name : ''),
+      kind: craft.kind === 'bedrock' || craft.kind === 'geyser' ? craft.kind : 'java',
+      joins: craft.joins,
+      pack: craft.pack,
+      packVersion: craft.packVersion,
+      ...probeFromJoins(craft.kind, craft.joins)
+    };
+    children.push(child);
+    usedIds.add(child.id);
+  }
+  const names = new Set(children.map((child) => clean(child.name, 80).toLowerCase()));
+  const addresses = new Set(children.flatMap((child) => rowAddresses(child)));
+  for (const extra of members) {
+    if (extra.labelOnly) continue;
+    if (craft && addressesOverlap(craft, extra)) continue;
+    const nameKey = clean(extra.name, 80).toLowerCase();
+    const extraAddresses = rowAddresses(extra);
+    if (!nameKey || names.has(nameKey) || extraAddresses.some((address) => addresses.has(address))) continue;
+    names.add(nameKey);
+    for (const address of extraAddresses) addresses.add(address);
+    children.push({
+      id: minecraftEnvId(extra.name, usedIds),
+      game: 'Minecraft',
+      name: extra.name,
+      kind: extra.kind,
+      joins: extra.joins,
+      probeHost: extra.probeHost,
+      probePort: extra.probePort,
+      probeKind: extra.probeKind
+    });
+  }
+  if (!children.length) return;
+  const parent = {
+    id: craft?.id || 'minecraft:env',
+    game: 'Minecraft',
+    name: title,
+    kind: 'group',
+    joins: [],
+    servers: children
+  };
+  if (index >= 0) rows.splice(index, 1, parent);
+  else rows.push(parent);
+}
+
 function appendEnvMinecraftRows(rows, env) {
+  const entries = envMinecraftPublicRows(env);
   const names = new Set();
   const addresses = new Set();
   const usedIds = new Set();
@@ -256,20 +417,19 @@ function appendEnvMinecraftRows(rows, env) {
     if (clean(row.game, 80).toLowerCase() !== 'minecraft') continue;
     const name = clean(row.name, 80).toLowerCase();
     if (name) names.add(name);
-    for (const join of row.joins || []) {
-      const address = joinAddress(join);
-      if (address) addresses.add(address);
-    }
+    for (const address of rowAddresses(row)) addresses.add(address);
   }
-  for (const extra of envMinecraftPublicRows(env)) {
+  for (const extra of entries) {
+    if (extra.group === 'nexus-craft') continue;
     const name = clean(extra.name, 80).toLowerCase();
     if (!name || names.has(name)) continue;
-    const extraAddresses = (extra.joins || []).map(joinAddress).filter(Boolean);
+    const extraAddresses = rowAddresses(extra);
     if (extraAddresses.some((address) => addresses.has(address))) continue;
     names.add(name);
     for (const address of extraAddresses) addresses.add(address);
     rows.push({ ...extra, id: minecraftEnvId(extra.name, usedIds) });
   }
+  foldNexusCraftGroup(rows, entries, env);
 }
 
 function collectCraftRows(store, env = {}) {
