@@ -1,5 +1,9 @@
 'use strict';
 
+// These tests cover the consecutive-check debounce; the time threshold
+// (SERVER_DOWN_MINUTES) is covered in server-down-alerts-groups.test.cjs.
+process.env.SERVER_DOWN_MINUTES = '0';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

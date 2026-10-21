@@ -1,14 +1,18 @@
 'use strict';
 
-// Down/up alerts for public game servers. A server must read Offline on
-// DOWN_THRESHOLD consecutive fresh checks before one alert goes out; one
-// recovery alert follows when it reads Online again. No repeats while down.
+// Down/up alerts for public game servers. A server must read Offline on at
+// least DOWN_THRESHOLD consecutive fresh checks AND stay down for
+// SERVER_DOWN_MINUTES (default 5) before one alert goes out, so a normal daily
+// restart stays quiet but a crash or slow restart DMs the owner. One recovery
+// alert follows when it reads Online again. No repeats while down. Grouped
+// rows (kind:'group', e.g. Nexus Craft) are checked per child server.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { StateStore } = require('./state-store.cjs');
 
 const DOWN_THRESHOLD = 2;
+const DEFAULT_DOWN_MINUTES = 5;
 const STATE_FILE = 'sentinal-server-alerts.json';
 const SNOWFLAKE = /^\d{17,20}$/;
 
@@ -53,6 +57,29 @@ function isAlertableGameServer(row = {}) {
   if (/veyra/i.test(label) || /\bbot\b/i.test(String(row.game || ''))) return false;
   if (/^config:dnd:/i.test(String(row.id || ''))) return false;
   return Boolean(oneLine(row.game) && oneLine(row.name));
+}
+
+function downMinutes(env = process.env) {
+  const raw = String(env?.SERVER_DOWN_MINUTES ?? '').trim();
+  const value = Number(raw);
+  if (!raw || !Number.isFinite(value) || value < 0 || value > 1440) return DEFAULT_DOWN_MINUTES;
+  return value;
+}
+
+// Expand group rows into their child servers so each is tracked on its own.
+function flattenRows(rows = []) {
+  const out = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row || typeof row !== 'object') continue;
+    if (Array.isArray(row.servers) && row.servers.length) {
+      for (const child of row.servers) {
+        if (child && typeof child === 'object') out.push({ ...child, game: child.game || row.game });
+      }
+      continue;
+    }
+    out.push(row);
+  }
+  return out;
 }
 
 function rowState(row = {}) {
@@ -110,6 +137,8 @@ function sanitizeSavedServers(data) {
 class ServerAlertMonitor {
   constructor(options = {}) {
     this.threshold = Math.max(1, Number(options.threshold) || DOWN_THRESHOLD);
+    const minutes = options.downMinutes !== undefined ? Number(options.downMinutes) : downMinutes(options.env || process.env);
+    this.downMs = Math.max(0, Number.isFinite(minutes) ? minutes : DEFAULT_DOWN_MINUTES) * 60_000;
     this.now = typeof options.now === 'function' ? options.now : () => Date.now();
     this.file = options.file === undefined ? path.join(new StateStore().dir, STATE_FILE) : options.file;
     this.servers = this.load();
@@ -140,7 +169,7 @@ class ServerAlertMonitor {
     const events = [];
     const seen = new Set();
     let changed = false;
-    for (const row of Array.isArray(rows) ? rows : []) {
+    for (const row of flattenRows(rows)) {
       if (!isAlertableGameServer(row)) continue;
       const key = alertKey(row);
       if (seen.has(key)) continue;
@@ -156,7 +185,7 @@ class ServerAlertMonitor {
       if (state === 'offline' && fresh) {
         entry.offlineChecks = (Number(previous.offlineChecks) || 0) + 1;
         if (!entry.downSince) entry.downSince = now;
-        if (!entry.alerted && entry.offlineChecks >= this.threshold) {
+        if (!entry.alerted && entry.offlineChecks >= this.threshold && now - entry.downSince >= this.downMs) {
           entry.alerted = true;
           events.push({ type: 'down', game: entry.game, name: entry.name, since: entry.downSince, checks: entry.offlineChecks });
         }
@@ -252,7 +281,10 @@ async function runServerAlerts(client, rows, options = {}) {
 }
 
 module.exports = {
+  DEFAULT_DOWN_MINUTES,
   DOWN_THRESHOLD,
+  downMinutes,
+  flattenRows,
   STATE_FILE,
   ServerAlertMonitor,
   alertOwnerIds,
