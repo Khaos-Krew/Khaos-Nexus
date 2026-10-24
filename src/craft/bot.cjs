@@ -25,6 +25,14 @@ const { redactSecret } = require('./protocol.cjs');
 const { minecraftCommand, pingBedrock, pingJava, probeServerStatus, runRcon } = require('./query.cjs');
 const { openCraftStore } = require('./store.cjs');
 const { handleMcPointsCommand, installMcEconomyLoops } = require('./mc-points-commands.cjs');
+const { mcMemberText } = require('../shared/mc-member-text.cjs');
+const {
+  bindRankSyncClient,
+  formatRankReport,
+  mcRankSyncConfig,
+  rolesChanged,
+  startMcRankSync
+} = require('./mc-rank-sync.cjs');
 
 const STATUS_IDENTITY = Object.freeze({
   titles: Object.freeze([
@@ -69,6 +77,12 @@ function safeLink(value) {
 
 function guildIdOf(env) {
   return String(env.DISCORD_GUILD_ID || env.NEXUS_DISCORD_GUILD_ID || '').trim();
+}
+
+function craftClientIntents(env = process.env) {
+  const intents = [GatewayIntentBits.Guilds];
+  if (mcRankSyncConfig(env).enabled) intents.push(GatewayIntentBits.GuildMembers);
+  return intents;
 }
 
 function optionString(interaction, name) {
@@ -217,6 +231,19 @@ function craftCommands(env = process.env) {
         .setName('clear')
         .setDescription('Staff: delete one saved RCON server.')
         .addBooleanOption((option) => option.setName('confirm').setDescription('Confirm the delete.').setRequired(true)))),
+    new SlashCommandBuilder()
+      .setName('mcrank')
+      .setDescription('Staff: preview or sync Discord roles to LuckPerms.')
+      .setDMPermission(false)
+      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+      .addSubcommand((sub) => sub
+        .setName('preview')
+        .setDescription('Dry-run table of LuckPerms changes. Sends no writes.')
+        .addUserOption((option) => option.setName('user').setDescription('One member. Blank previews every linked account.')))
+      .addSubcommand((sub) => sub
+        .setName('sync')
+        .setDescription('Reconcile LuckPerms parents for linked accounts.')
+        .addUserOption((option) => option.setName('user').setDescription('One member. Blank syncs every linked account.'))),
     mc
   ];
   if (flags.pointsEnabled || flags.shopEnabled || flags.starterKitEnabled || flags.shopDeliveryEnabled) {
@@ -376,6 +403,74 @@ function rconStatusText(entries) {
 function requireStaff(interaction, config) {
   if (craftIsStaff(interaction, config)) return true;
   return false;
+}
+
+function mcPointsContext(interaction, context) {
+  const base = {
+    ...context,
+    isStaff: requireStaff(interaction, context.config),
+    ephemeral,
+    ephemeralFlags: MessageFlags.Ephemeral
+  };
+  if (!context.rankSync?.enabled) return base;
+  return {
+    ...base,
+    onMinecraftLinked: (linkedInteraction, result) => context.rankSync.syncMember(linkedInteraction.member, 'account-link', result?.mcUuid),
+    beforeMinecraftUnlink: async (_linkedInteraction, input) => {
+      const rankSync = context.rankSync;
+      if (!rankSync?.enabled) return { ok: true, skipped: true };
+      const discordUserId = String(input?.discordUserId || '').trim();
+      let mcUuid = '';
+      try {
+        const status = await (context.points || rankSync.points)?.status?.({ discordUserId });
+        if (status?.linked) mcUuid = status.mcUuid || '';
+        if (status && status.linked === false) return { ok: true, skipped: 'not-linked' };
+      } catch {
+        return { ok: false, reason: 'rank-sync-not-ready' };
+      }
+      if (!mcUuid) return { ok: false, reason: 'rank-sync-not-ready' };
+      return rankSync.beforeUnlink({
+        mcUuid,
+        discordUserId,
+        source: input?.staff ? 'staff-link-revoke' : 'self-service-unlink'
+      });
+    }
+  };
+}
+
+function selectedRankUser(interaction) {
+  const member = interaction.options?.getMember?.('user');
+  if (member?.id) return { id: String(member.id), member };
+  const user = interaction.options?.getUser?.('user');
+  if (user?.id) return { id: String(user.id), member: null };
+  return { id: '', member: null };
+}
+
+async function handleMcRankCommand(interaction, context) {
+  if (!requireStaff(interaction, context.config)) return replyStaff(interaction);
+  const rankSync = context.rankSync;
+  const sub = interaction.options?.getSubcommand?.(false) || '';
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!rankSync?.enabled) {
+    await interaction.editReply({ content: mcMemberText('rank-sync-disabled'), allowedMentions: { parse: [] } });
+    return;
+  }
+  const selected = selectedRankUser(interaction);
+  const run = sub === 'sync' ? rankSync.syncNow.bind(rankSync) : rankSync.preview.bind(rankSync);
+  const report = await run({ discordUserId: selected.id, member: selected.member });
+  if (report?.ok === false && !(report.rows || []).length && report.reason) {
+    await interaction.editReply({ content: mcMemberText(report.reason), allowedMentions: { parse: [] } });
+    return;
+  }
+  await interaction.editReply({
+    content: formatRankReport({
+      title: sub === 'sync' ? 'LuckPerms rank sync' : 'LuckPerms rank preview',
+      dryRun: sub !== 'sync' || Boolean(report.dryRun),
+      rows: report.rows || [],
+      summary: report.summary || {}
+    }),
+    allowedMentions: { parse: [] }
+  });
 }
 
 async function replyStaff(interaction) {
@@ -629,13 +724,12 @@ async function handleCraftInteraction(interaction, context) {
         return;
       }
     }
+    if (name === 'mcrank') {
+      await handleMcRankCommand(interaction, context);
+      return;
+    }
     if (name === 'mcadmin') {
-      await handleMcPointsCommand(interaction, {
-        ...context,
-        isStaff: requireStaff(interaction, config),
-        ephemeral,
-        ephemeralFlags: MessageFlags.Ephemeral
-      });
+      await handleMcPointsCommand(interaction, mcPointsContext(interaction, context));
       return;
     }
     if (name === 'mc') {
@@ -687,12 +781,7 @@ async function handleCraftInteraction(interaction, context) {
       if (group === 'whitelist' && sub === 'add') return runStaffRcon(interaction, context, 'whitelist-add', { name: optionString(interaction, 'name') });
       if (group === 'whitelist' && sub === 'remove') return runStaffRcon(interaction, context, 'whitelist-remove', { name: optionString(interaction, 'name') });
       if (group === 'whitelist' && sub === 'list') return runStaffRcon(interaction, context, 'whitelist-list', {});
-      const mcPoints = await handleMcPointsCommand(interaction, {
-        ...context,
-        isStaff: requireStaff(interaction, config),
-        ephemeral,
-        ephemeralFlags: MessageFlags.Ephemeral
-      });
+      const mcPoints = await handleMcPointsCommand(interaction, mcPointsContext(interaction, context));
       if (mcPoints) return;
     }
     if (name === 'realm') {
@@ -877,10 +966,19 @@ async function registerCraftCommands(client, env) {
 }
 
 function startCraftDiscord({ env = process.env, state = {}, token, client } = {}) {
-  const discord = client || new Client({ intents: [GatewayIntentBits.Guilds] });
+  const discord = client || new Client({ intents: craftClientIntents(env) });
   const store = openCraftStore(env);
   const config = loadConfig();
   const context = { env, store, config, client: discord };
+  context.rankSync = bindRankSyncClient(startMcRankSync({ client: discord, store, env, guildId: guildIdOf(env) }), discord, guildIdOf(env));
+  discord.on(Events.GuildMemberUpdate, (before, after) => {
+    if (String(after?.guild?.id || '') !== guildIdOf(env)) return;
+    if (!rolesChanged(before, after)) return;
+    if (!context.rankSync?.enabled) return;
+    void context.rankSync.syncMember(after, 'guild-member-update').catch((error) => {
+      console.warn(`[Nexus Craft] mc rank sync class=${errorClass(error)}`);
+    });
+  });
   const clientId = String(env.NEXUS_CRAFT_CLIENT_ID || env.DISCORD_CLIENT_ID || '').trim();
   console.log('[Nexus Craft] starting');
   console.log(`[Nexus Craft] client id ${clientId ? 'present' : 'missing'}`);
@@ -909,12 +1007,16 @@ function startCraftDiscord({ env = process.env, state = {}, token, client } = {}
     });
     if (store.getStatusPanel()?.host) startStatusLoop(discord, store, env);
     installMcEconomyLoops({ store, env });
+    void context.rankSync?.start?.().catch((error) => {
+      console.warn(`[Nexus Craft] mc rank sync class=${errorClass(error)}`);
+    });
   });
   discord.on(Events.Error, (error) => console.error(`[Nexus Craft] Discord error class=${errorClass(error)}`));
   return discord.login(token).then(() => discord);
 }
 
 module.exports = {
+  craftClientIntents,
   craftCommands,
   handleCraftInteraction,
   handleRealmDecision,

@@ -12,6 +12,26 @@ const DELIVERY_LOOP = Symbol.for('khaos.nexus.craft.mc.delivery');
 const PLAYTIME_LOOP = Symbol.for('khaos.nexus.craft.mc.playtime');
 const SWEEP_LOOP = Symbol.for('khaos.nexus.craft.mc.refund-sweep');
 
+async function finishMcReply(interaction, context, text) {
+  const payload = context.ephemeral(text);
+  if (interaction.deferred || interaction.replied) {
+    await interaction.editReply({ content: payload.content, allowedMentions: { parse: [] } });
+    return;
+  }
+  await interaction.reply(payload);
+}
+
+async function guardMinecraftUnlink(interaction, context, discordUserId, staff) {
+  if (typeof context.beforeMinecraftUnlink !== 'function') return false;
+  if (!interaction.deferred && !interaction.replied && typeof interaction.deferReply === 'function') {
+    await interaction.deferReply({ flags: context.ephemeralFlags });
+  }
+  const gate = await context.beforeMinecraftUnlink(interaction, { discordUserId, staff: Boolean(staff) });
+  if (gate?.ok) return false;
+  await finishMcReply(interaction, context, reasonText(gate?.reason || 'rank-revoke-not-verified'));
+  return true;
+}
+
 function reasonText(reason) {
   return mcMemberText(reason);
 }
@@ -60,12 +80,14 @@ async function handleMcPointsCommand(interaction, context) {
       return true;
     }
     if (sub === 'link-revoke') {
+      const target = interaction.options.getString('user');
+      if (await guardMinecraftUnlink(interaction, context, target, true)) return true;
       const result = await points.unlink({
-        discordUserId: interaction.options.getString('user'),
+        discordUserId: target,
         actor: discordUserId,
         reason: 'staff-revoke'
       });
-      await interaction.reply(context.ephemeral(result.ok ? `Link revoked. They can link again after ${result.cooldownUntil} with \`/mc link start\`.` : reasonText(result.reason)));
+      await finishMcReply(interaction, context, result.ok ? `Link revoked. They can link again after ${result.cooldownUntil} with \`/mc link start\`.` : reasonText(result.reason));
       return true;
     }
     if (sub === 'refund') {
@@ -110,6 +132,11 @@ async function handleMcPointsCommand(interaction, context) {
   }
   if (group === 'link' && sub === 'confirm') {
     const result = await points.confirm({ discordUserId, code: interaction.options.getString('code') });
+    if (result.ok && typeof context.onMinecraftLinked === 'function') {
+      void Promise.resolve(context.onMinecraftLinked(interaction, result)).catch((error) => {
+        console.warn(`[Nexus Craft] mc rank link sync ${String(error?.message || error).slice(0, 160)}`);
+      });
+    }
     await interaction.reply(context.ephemeral(result.ok ? 'Minecraft is linked. Play on Nexus Craft to earn Points. Check it any time with `/mc link status`.' : reasonText(result.reason)));
     return true;
   }
@@ -134,8 +161,9 @@ async function handleMcPointsCommand(interaction, context) {
     return true;
   }
   if (sub === 'unlink') {
+    if (await guardMinecraftUnlink(interaction, context, discordUserId, false)) return true;
     const result = await points.unlink({ discordUserId });
-    await interaction.reply(context.ephemeral(result.ok ? `Minecraft is unlinked. You can link again after ${result.cooldownUntil} with \`/mc link start\`.` : reasonText(result.reason)));
+    await finishMcReply(interaction, context, result.ok ? `Minecraft is unlinked. You can link again after ${result.cooldownUntil} with \`/mc link start\`.` : reasonText(result.reason));
     return true;
   }
   if (sub === 'shop') {

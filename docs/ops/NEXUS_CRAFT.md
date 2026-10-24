@@ -45,7 +45,7 @@ Required before the bot logs into Discord. The process still boots and serves `/
 
 Required before slash commands work.
 
-- `DISCORD_GUILD_ID` — guild where `/craft`, `/mc`, `/mcrcon`, and `/realm` are registered. `NEXUS_DISCORD_GUILD_ID` is accepted as an alias.
+- `DISCORD_GUILD_ID` — guild where `/craft`, `/mc`, `/mcrcon`, `/mcrank`, and `/realm` are registered. `NEXUS_DISCORD_GUILD_ID` is accepted as an alias.
 - `NEXUS_CRAFT_DISCORD_CATEGORY_ID` — commands and panels only run in channels (and threads) under this category. If it is unset or not a snowflake, the bot replies: `Nexus Craft is not configured. Set NEXUS_CRAFT_DISCORD_CATEGORY_ID.`
 
 Optional.
@@ -64,7 +64,7 @@ Do not set RCON host, port, or password in Railway. `/mcrcon` ignores those vari
 
 ## One-time owner setup in Discord
 
-1. Create the bot application. Invite it with scopes `bot` and `applications.commands`. Grant View Channels, Send Messages, Embed Links, Read Message History, Create Public Threads, and Send Messages in Threads. Privileged intents are not required.
+1. Create the bot application. Invite it with scopes `bot` and `applications.commands`. Grant View Channels, Send Messages, Embed Links, Read Message History, Create Public Threads, and Send Messages in Threads. The privileged **Server Members** intent must be enabled in the Developer Portal before `MC_RANK_SYNC_ENABLED` is turned on. With that flag left off, the bot does not request Server Members and no other privileged intent is required.
 2. Invite URL shape: `https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot%20applications.commands`. In the authorize screen, grant View Channels, Send Messages, Embed Links, Read Message History, Create Public Threads, and Send Messages in Threads.
 3. Put the bot token in `NEXUS_CRAFT_TOKEN`, the guild id in `DISCORD_GUILD_ID`, and the Minecraft category id in `NEXUS_CRAFT_DISCORD_CATEGORY_ID`. Redeploy.
 4. In a channel inside that category, a staff member runs `/mcrcon setup` with the Java server host, RCON port, and password. Add `server` only when more than one Java server should be saved. Check with `/mcrcon status`. The password field is not printed back.
@@ -106,7 +106,28 @@ AFK is five minutes of unchanged position and rotation. There is no datapack tag
 
 Partial delivery keeps every line that already arrived. The rest is marked SENT_UNCONFIRMED for staff and is not auto-retried or auto-refunded.
 
-`/mc link`, `/mc unlink`, `/mc shop`, and `/mc starter` are registered only when that feature's flag is on. `/mc link start` whispers a code to the online Java player and says not to share it. `/mc link confirm` verifies that UUID. `/mc unlink` starts a 30-day cooldown. `/mc shop` and `/mc starter` point at Sentinal. Staff `/mcadmin` lists orders and kit claims. Members do not see `/mcadmin`.
+`/mc link`, `/mc unlink`, `/mc shop`, and `/mc starter` are registered only when that feature's flag is on. `/mc link start` whispers a code to the online player and says not to share it. Java accounts are checked with Mojang. Bedrock players on the Geyser server use their Floodgate UUID (`00000000-0000-0000-…`, not the nil UUID). Floodgate links do not earn Points or open the shop; those stay on a premium Java UUID. `/mc link confirm` verifies that UUID. `/mc unlink` starts a 30-day cooldown. `/mc shop` and `/mc starter` point at Sentinal. Staff `/mcadmin` lists orders and kit claims. Members do not see `/mcadmin`.
+
+## LuckPerms rank sync
+
+Discord shop-sub roles and Server Booster are copied onto the linked Minecraft UUID as LuckPerms parent groups. The connection is the server saved with `/mcrcon setup`. `MC_RANK_SYNC_SERVER` is that saved name (for example `skyblock`). Host, port, and password are never read from Railway.
+
+Enable the privileged **Server Members** intent on the Nexus Craft application first. Then set `MC_RANK_SYNC_ENABLED=true`. Until that flag is on, the bot's gateway intents stay Guilds only. `guildMemberUpdate` is how a role add or remove is seen, and that event is not delivered without Server Members.
+
+Defaults:
+
+- `MC_RANK_SYNC_ENABLED` — default false.
+- `MC_RANK_SYNC_DRY_RUN` — default true. The bot reads `lp listgroups` and `lp user <uuid> parent info`, journals the planned `parent add` / `parent remove`, and sends no writes.
+- `MC_RANK_SYNC_SERVER` — saved `/mcrcon` name. Required when sync is on.
+- `MC_RANK_ROLE_MAP_JSON` — optional object merged onto the built-in role map, `{"<roleId>":{"group":"cipherrunner","kind":"sub"}}`. Group names match `^[a-z][a-z0-9_-]{2,47}$`. Kind is `sub` or `permanent`. The same group cannot be both.
+- `MC_RANK_SYNC_INTERVAL_MINUTES` — default 30. Reconcile period.
+- `MC_RANK_GROUP_PROVISION_ENABLED` — default false. When false, a missing LuckPerms group disables writes. Groups are created by the owner from the LuckPerms group script, not by this bot.
+
+Sub groups (`cipherrunner`, `nexusraider`, `khaoswarden`) keep only the highest role. `booster` is applied beside that sub. Those four are removed when the role is gone, and they are removed and verified before `/mc unlink` or `/mcadmin link-revoke`. If that revoke cannot be verified, the unlink is refused and the account stays linked. While dry run is on, a linked account that still holds a sub or booster group cannot be unlinked, because the remove is not sent.
+
+The four ranks (`shadecreeper`, `voidenderman`, `witherknight`, `nexusdragon`), `blackoutlegend`, and `originfounder` are granted when the mapped role is held and are never removed by this bot. Only the highest of the four ranks is added; a lower rank that is already on the UUID stays until staff remove it in LuckPerms. Those four rank roles are not in Discord yet. Add their role ids with `MC_RANK_ROLE_MAP_JSON` after the roles exist. Both current Legend role ids and both Founder role ids are mapped until one of each is retired.
+
+The audit file is `$NEXUS_DATA_DIR/mc-rank-sync-audit.json`. It stores a sha256 of the Minecraft UUID, not the UUID. RCON commands are at least one second apart. `/mcrank preview` is a dry-run table. `/mcrank sync` reconciles one member or every linked account, and it still does not write while dry run is on.
 
 ## Edition support
 
