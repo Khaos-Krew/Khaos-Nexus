@@ -29,4 +29,4 @@ COPY docs/WINDOWS_RELEASE_VALIDATION.md ./docs/WINDOWS_RELEASE_VALIDATION.md
 
 RUN npm run check && npm test
 
-CMD ["node", "-r", "./src/sentinel/arn-parser-runtime-patch.cjs", "-r", "./src/sentinel/arn-poll-reconcile-worker.cjs", "-r", "./src/sentinel/ark-ssh-probe-startup.cjs", "src/railway/sentinal-service.cjs"]
+CMD ["node", "-r", "./src/railway/sentinal-preload.cjs", "src/railway/sentinal-service.cjs"]
