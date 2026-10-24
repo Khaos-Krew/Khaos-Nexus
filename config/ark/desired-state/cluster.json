@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "authority": "github",
+  "status": "candidate",
+  "applyMode": "preview-only",
+  "liveVerified": false,
+  "description": "Khaos Nexus cluster-wide desired ARK configuration. Git is authoritative; Sentinel may preview drift but must not write this state live unless a separately confirmed apply workflow is used.",
+  "source": {
+    "migratedFrom": "src/sentinel/ark-sftp-config.cjs BASELINE_GUS/BASELINE_GAME",
+    "capturedAt": "2026-09-02",
+    "verificationRequired": true
+  },
+  "policy": {
+    "runtimeWritebackToGit": false,
+    "automaticLiveApply": false,
+    "automaticRestart": false,
+    "backupBeforeWrite": true,
+    "verifyAfterWrite": true,
+    "rollbackOnFailure": true,
+    "protectedPlayerStatsRequireExplicitOwnerApproval": true
+  },
+  "defaults": {
+    "gus": {
+      "sections": {
+        "ServerSettings": {
+          "ServerPVE": "True",
+          "DifficultyOffset": "1.0",
+          "OverrideOfficialDifficulty": "5.0",
+          "XPMultiplier": "5.0",
+          "TamingSpeedMultiplier": "10.0",
+          "HarvestAmountMultiplier": "5.0",
+          "HarvestHealthMultiplier": "2.0",
+          "DinoCountMultiplier": "1.0",
+          "PlayerCharacterFoodDrainMultiplier": "0.75",
+          "PlayerCharacterWaterDrainMultiplier": "0.75",
+          "PlayerCharacterStaminaDrainMultiplier": "0.85",
+          "DinoCharacterStaminaDrainMultiplier": "0.85",
+          "PlayerCharacterHealthRecoveryMultiplier": "1.5",
+          "DinoCharacterHealthRecoveryMultiplier": "2.0",
+          "ResourcesRespawnPeriodMultiplier": "0.5",
+          "ResourceNoReplenishRadiusPlayers": "0.5",
+          "ResourceNoReplenishRadiusStructures": "0.5",
+          "CropGrowthSpeedMultiplier": "8.0",
+          "SupplyCrateLootQualityMultiplier": "2.5",
+          "FishingLootQualityMultiplier": "2.0",
+          "GlobalSpoilingTimeMultiplier": "2.0",
+          "GlobalItemDecompositionTimeMultiplier": "2.0",
+          "GlobalCorpseDecompositionTimeMultiplier": "2.0",
+          "ServerCrosshair": "True",
+          "AllowHitMarkers": "True",
+          "AllowThirdPersonPlayer": "True",
+          "ShowMapPlayerLocation": "True",
+          "PreventSpawnAnimations": "True",
+          "AllowFlyerCarryPvE": "True",
+          "bForceCanRideFliers": "True",
+          "ForceAllowCaveFlyers": "True",
+          "AllowCaveBuildingPvE": "True",
+          "RCONEnabled": "True"
+        }
+      }
+    },
+    "game": {
+      "sections": {
+        "/Script/ShooterGame.ShooterGameMode": {
+          "bUseSingleplayerSettings": "False",
+          "bAllowFlyerSpeedLeveling": "True",
+          "bAllowSpeedLeveling": "True",
+          "MatingIntervalMultiplier": "0.10",
+          "EggHatchSpeedMultiplier": "20.0",
+          "BabyMatureSpeedMultiplier": "15.0",
+          "BabyCuddleIntervalMultiplier": "0.10",
+          "BabyImprintAmountMultiplier": "2.0",
+          "BabyImprintingStatScaleMultiplier": "1.0",
+          "LayEggIntervalMultiplier": "0.5",
+          "PerLevelStatsMultiplier_Player[0]": "2.0",
+          "PerLevelStatsMultiplier_Player[1]": "3.0",
+          "PerLevelStatsMultiplier_Player[3]": "3.0",
+          "PerLevelStatsMultiplier_Player[4]": "2.0",
+          "PerLevelStatsMultiplier_Player[5]": "2.0",
+          "PerLevelStatsMultiplier_Player[7]": "30.0",
+          "PerLevelStatsMultiplier_Player[8]": "1.5",
+          "PerLevelStatsMultiplier_Player[9]": "1.5",
+          "PerLevelStatsMultiplier_Player[10]": "5.0",
+          "PerLevelStatsMultiplier_Player[11]": "5.0",
+          "PerLevelStatsMultiplier_DinoTamed[0]": "0.40",
+          "PerLevelStatsMultiplier_DinoTamed[1]": "3.0",
+          "PerLevelStatsMultiplier_DinoTamed[3]": "3.0",
+          "PerLevelStatsMultiplier_DinoTamed[4]": "2.0",
+          "PerLevelStatsMultiplier_DinoTamed[7]": "15.0",
+          "PerLevelStatsMultiplier_DinoTamed[8]": "0.34",
+          "PerLevelStatsMultiplier_DinoTamed[9]": "1.5"
+        }
+      }
+    }
+  },
+  "servers": {
+    "gen1": {
+      "envPrefix": "ARK_GEN1",
+      "map": "Genesis 1",
+      "overrides": {}
+    },
+    "map2": {
+      "envPrefix": "ARK_MAP2",
+      "map": "Astraeos",
+      "overrides": {}
+    }
+  }
+}
