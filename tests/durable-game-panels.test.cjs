@@ -1204,3 +1204,22 @@ test('Cephalon retires a Warframe news panel once and leaves the other boards in
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('arbitration falls back to browse.wf schedule when warframestat returns the placeholder', async () => {
+  const { WarframeProvider, isPlaceholderArbitration } = require('../src/backend/providers/warframe-provider.cjs');
+  const hour = Math.floor(Date.now() / 3600000) * 3600;
+  const placeholder = { node: 'SolNode000', nodeKey: 'SolNode000', type: 'Unknown', enemy: 'Tenno', expiry: '+275760-09-13T00:00:00.000Z', expired: true };
+  assert.equal(isPlaceholderArbitration(placeholder), true);
+  const json = (body) => ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) });
+  const fetchImpl = async (url) => {
+    if (url.includes('arbys')) return { ok: true, status: 200, text: async () => `${hour - 3600},SolNode1\n${hour},ClanNode7\n${hour + 3600},SolNode2\n` };
+    if (url.includes('solNodes')) return json({ ClanNode7: { value: 'Cholistan (Europa)', enemy: 'Infested', type: 'Dark Sector Excavation' } });
+    return json(placeholder);
+  };
+  const result = await new WarframeProvider({ fetchImpl }).invoke('arbitration');
+  assert.equal(result.arbitration.node, 'Cholistan (Europa)');
+  assert.equal(result.arbitration.mission, 'Dark Sector Excavation');
+  assert.equal(result.arbitration.enemy, 'Infested');
+  assert.equal(result.arbitration.expired, false);
+  assert.ok(result.arbitration.eta && !/Expired/.test(result.arbitration.eta));
+});

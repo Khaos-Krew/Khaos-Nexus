@@ -3,6 +3,39 @@
 const DEFAULT_WORLDSTATE_BASE = 'https://api.warframestat.us';
 const DEFAULT_MARKET_BASE = 'https://api.warframe.market/v2';
 const DEFAULT_TIMEOUT_MS = 10000;
+const DEFAULT_ARBITRATION_SCHEDULE_URL = 'https://browse.wf/arbys.txt';
+const DEFAULT_SOL_NODES_URL = 'https://raw.githubusercontent.com/WFCD/warframe-worldstate-data/master/data/solNodes.json';
+const ARBITRATION_HOUR_MS = 3600000;
+const ARBITRATION_SCHEDULE_TTL_MS = 6 * ARBITRATION_HOUR_MS;
+
+// warframestat.us lost its upstream arbitration feed and now returns a
+// permanent placeholder (SolNode000 / Unknown / expired, expiry year 275760).
+function isPlaceholderArbitration(data) {
+  if (!data || typeof data !== 'object') return true;
+  const expiry = new Date(data.expiry).getTime();
+  return data.expired === true || data.node === 'SolNode000' || data.nodeKey === 'SolNode000'
+    || data.type === 'Unknown' || !Number.isFinite(expiry) || expiry > Date.now() + 2 * ARBITRATION_HOUR_MS;
+}
+
+// Parse browse.wf arbys.txt ("<unix seconds>,<nodeKey>" per line) and pick the
+// hour that contains `now`.
+function arbitrationFromSchedule(text, nodes, now = Date.now()) {
+  let current = null;
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const [secs, key] = line.split(',');
+    const start = Number(secs) * 1000;
+    if (!Number.isFinite(start) || !key) continue;
+    if (start > now) break;
+    current = { start, key: key.trim() };
+  }
+  if (!current || now - current.start >= ARBITRATION_HOUR_MS) return null;
+  const node = (nodes && nodes[current.key]) || {};
+  return {
+    node: node.value || current.key, nodeKey: current.key, enemy: node.enemy || '', type: node.type || '',
+    activation: new Date(current.start).toISOString(), expiry: new Date(current.start + ARBITRATION_HOUR_MS).toISOString(),
+    expired: false, source: 'browse.wf'
+  };
+}
 const WARFRAME_ACTIONS = Object.freeze([
   'news', 'events', 'alerts', 'fissures', 'sortie', 'archon-hunt', 'arbitration', 'nightwave',
   'invasions', 'void-trader', 'steel-path', 'kuva', 'cycles', 'market', 'builds'
@@ -221,6 +254,9 @@ class WarframeProvider {
     this.marketPlatform = cleanText(options.marketPlatform || process.env.NEXUS_WARFRAME_MARKET_PLATFORM || 'pc', 20).toLowerCase() || 'pc';
     this.worldstateBase = String(options.worldstateBase || DEFAULT_WORLDSTATE_BASE).replace(/\/$/, '');
     this.marketBase = String(options.marketBase || DEFAULT_MARKET_BASE).replace(/\/$/, '');
+    this.arbitrationScheduleUrl = options.arbitrationScheduleUrl || DEFAULT_ARBITRATION_SCHEDULE_URL;
+    this.solNodesUrl = options.solNodesUrl || DEFAULT_SOL_NODES_URL;
+    this.arbitrationCache = null;
     this.timeoutMs = Math.max(1000, Number(options.timeoutMs || DEFAULT_TIMEOUT_MS));
     this.native = true;
     this.connected = false;
@@ -252,7 +288,44 @@ class WarframeProvider {
     return `${this.worldstateBase}/${encodeURIComponent(this.platform)}/${pathname}?language=en`;
   }
 
+  async requestText(url) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    timer.unref?.();
+    try {
+      const response = await this.fetchImpl(url, { headers: { 'user-agent': 'Khaos-Nexus/0.1 Warframe backend' }, signal: controller.signal });
+      if (!response.ok) throw new Error(`Warframe data request failed with HTTP ${response.status}.`);
+      return await response.text();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async scheduledArbitration(now = Date.now()) {
+    const cache = this.arbitrationCache;
+    if (!cache || now - cache.at > ARBITRATION_SCHEDULE_TTL_MS) {
+      const [text, nodes] = await Promise.all([
+        this.requestText(this.arbitrationScheduleUrl),
+        this.requestJson(this.solNodesUrl).catch(() => (cache && cache.nodes) || {})
+      ]);
+      this.arbitrationCache = { at: now, text, nodes: nodes || {} };
+    }
+    return arbitrationFromSchedule(this.arbitrationCache.text, this.arbitrationCache.nodes, now);
+  }
+
   async worldstate(pathname) {
+    if (pathname === 'arbitration') {
+      const live = await this.worldstateRaw(pathname).catch(() => null);
+      if (!isPlaceholderArbitration(live)) return live;
+      const scheduled = await this.scheduledArbitration().catch(() => null);
+      if (scheduled) return scheduled;
+      if (live) return { ...live, node: '', type: '', enemy: '', eta: '', expiry: '', expired: true };
+      throw new Error('Arbitration data unavailable.');
+    }
+    return this.worldstateRaw(pathname);
+  }
+
+  async worldstateRaw(pathname) {
     try {
       return await this.requestJson(this.worldstateUrl(pathname));
     } catch (error) {
@@ -317,6 +390,6 @@ class WarframeProvider {
 
 module.exports = {
   WarframeProvider, WARFRAME_ACTIONS, cleanText, marketSlug, rewardText, etaFromExpiry, summarizeAlerts, summarizeFissures,
-  summarizeSortie, summarizeArchonHunt, summarizeArbitration, summarizeNightwave, summarizeNews, summarizeEvents,
+  summarizeSortie, summarizeArchonHunt, summarizeArbitration, isPlaceholderArbitration, arbitrationFromSchedule, summarizeNightwave, summarizeNews, summarizeEvents,
   summarizeInvasions, summarizeVoidTrader, summarizeSteelPath, summarizeKuva, summarizeCycle, summarizeMarketOrder
 };
