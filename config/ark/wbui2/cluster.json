@@ -57,7 +57,7 @@
         "content": [
           {
             "title": "<RichColor Color=\"0.85,0.05,0.05,1\">Community Rules</>",
-            "text": "1. Respect players and staff.\n\n2. No cheating, meshing, duping, exploit abuse, or knowingly using bugs for an unfair advantage.\n\n3. Do not intentionally cause server instability or excessive performance problems.\n\n4. Do not impersonate staff.\n\n5. Follow staff instructions during incidents, events, maintenance, and investigations.\n\n6. Report serious bugs and exploits instead of spreading or abusing them.\n\n7. Use Nexus support for disputes and server issues whenever possible."
+            "text": "1. Respect players and staff. Harassment, hate speech, threats, targeted abuse, impersonation, or intentionally disruptive behavior is not permitted.\n\n2. No cheating, meshing, duping, exploit abuse, or knowingly using bugs for an unfair advantage. Report serious exploits privately to staff instead of spreading them.\n\n3. Do not grief outside the rules of the current server or event. Follow event-specific restrictions when posted.\n\n4. Keep player, tribe, creature, structure, and signage names appropriate for the community.\n\n5. Do not advertise competing communities or services, and do not distribute scams or malicious links.\n\n6. Follow tribe, base, and event-specific restrictions when posted by Khaos Nexus staff.\n\n7. BASE SIZE & PERFORMANCE: Bases must remain within a reasonable size and complexity. Excessive structure counts or builds that materially impact server or client performance may be required to be reduced or optimized. Staff will judge performance impact rather than applying an arbitrary hard structure-count limit.\n\n8. BASE REDUCTION ENFORCEMENT: If a requested reduction or optimization is not completed within a reasonable time, admins may reduce or remove portions at their discretion using administrative tools, including Redgun. Where practical, staff will attempt to preserve essential structures, storage, creatures, and player belongings. Enforcement is for cluster stability and fair use, not arbitrary punishment.\n\n9. Staff may act to protect cluster stability, security, and fair play. Follow staff instructions during incidents, events, maintenance, and investigations.\n\n10. Use Nexus support for disputes and server issues whenever possible.\n\nRules may be clarified or updated as the cluster evolves."
           }
         ]
       },
@@ -116,6 +116,6 @@
         "url": "https://discord.gg/ZYAdnbqRHs"
       }
     ],
-    "version": 2
+    "version": 3
   }
 }
