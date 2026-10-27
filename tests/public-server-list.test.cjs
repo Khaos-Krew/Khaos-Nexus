@@ -704,6 +704,17 @@ test('grouped Minecraft servers list under Nexus Craft and a Bedrock URL is not 
     assert.equal(downCraft.players, '6/30');
     assert.equal(downCraft.servers.find((server) => server.name === 'ATM10').status, 'Offline');
 
+    const maint = await applyLiveMinecraftStatus([craft], {
+      probeServerStatus: async (target) => {
+        if (target.host === '104.143.2.85') return { java: { online: 0, max: 30, motd: 'Khaos Nexus Skyblock | MAINTENANCE MODE', version: 'Velocity 1.7.2-26.3' } };
+        return { java: { offline: true }, bedrock: { offline: true } };
+      }
+    });
+    assert.equal(maint[0].status, 'Maintenance');
+    assert.equal(maint[0].servers.find((server) => server.name === 'Skyblock').status, 'Maintenance');
+    const maintPanel = renderGameServersPanel({ servers: mergePanelServers(maint, []), privateServers: [] });
+    assert.match(maintPanel.embeds[0].fields[0].value, /🟡 \*\*Skyblock\*\* — 🛠️ \*\*Maintenance Mode\*\*/);
+
     const offline = await applyLiveMinecraftStatus([craft], {
       probeServerStatus: async () => { throw new Error('down'); }
     });

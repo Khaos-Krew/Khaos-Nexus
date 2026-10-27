@@ -39,7 +39,7 @@ function renderJoinLines(server={}){
 function renderServerLine(server={}){
   // The 🟢/🔴/🟡 dot is the status; official servers need no badge line (the
   // section header says Official). Approved community servers keep a short tag.
-  const name=cleanPublicText(server.name || 'Server',80)||'Server';const glyph=trackingGlyph(server);const lines=[`${glyph?`${glyph} `:''}**${name}**`];
+  const name=cleanPublicText(server.name || 'Server',80)||'Server';const glyph=trackingGlyph(server),state=visibleTrackingState(server);const lines=[`${glyph?`${glyph} `:''}**${name}**${state==='maintenance'?' — 🛠️ **Maintenance Mode**':''}`];
   if(Array.isArray(server.servers)&&server.servers.length){
     if(Number.isFinite(Number(server.playerCount))){const max=Number.isFinite(Number(server.playerMax))?` / ${Number(server.playerMax)}`:'';lines.push(`**Players:** ${Number(server.playerCount)}${max}`);}
     for(const child of server.servers)lines.push('',renderServerLine(child));

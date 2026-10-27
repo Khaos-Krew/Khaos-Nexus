@@ -257,7 +257,9 @@ async function pingMinecraftRow(row, probe) {
     const players = Number.isFinite(Number(status.online)) && Number.isFinite(Number(status.max))
       ? `${status.online}/${status.max}`
       : '';
-    return { ...row, status: 'Online', players, ...liveJavaDetails(row, status) };
+    const motdText = `${status.motd || ''} ${status.subMotd || ''} ${status.version || ''}`;
+    const state = /\bmaintenance\b/i.test(motdText) ? 'Maintenance' : 'Online';
+    return { ...row, status: state, players, ...liveJavaDetails(row, status) };
   } catch {
     return { ...row, status: 'Offline', players: '' };
   }
@@ -265,8 +267,9 @@ async function pingMinecraftRow(row, probe) {
 
 function rollupMinecraftStatus(servers) {
   const online = servers.some((server) => server.status === 'Online');
-  const known = servers.some((server) => server.status === 'Online' || server.status === 'Offline');
-  const status = online ? 'Online' : (known ? 'Offline' : '');
+  const maintenance = servers.some((server) => server.status === 'Maintenance');
+  const known = servers.some((server) => server.status === 'Online' || server.status === 'Maintenance' || server.status === 'Offline');
+  const status = online ? 'Online' : (maintenance ? 'Maintenance' : (known ? 'Offline' : ''));
   let playersOnline = 0;
   let playersMax = 0;
   let counted = 0;
