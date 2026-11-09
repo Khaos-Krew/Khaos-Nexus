@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const { formatActionResult } = require('./action-formatters.cjs');
 const { pokemonGoEventPayload } = require('./pokemon-go-event-ui.cjs');
 const { isRetiredModuleId } = require('./retired-module-policy.cjs');
-const { isNoProvisionChannelModule } = require('./no-provision-modules.cjs');
+const { arkModuleRetired, isNoProvisionChannelModule } = require('./no-provision-modules.cjs');
 const { shouldPostLayoutMessage } = require('./manual-layout.cjs');
 
 const DEFAULT_POLL_MS = 10 * 60 * 1000;
@@ -39,7 +39,7 @@ function warframeFeedDisabled(env = process.env) {
 }
 
 function feedsFor(env = process.env, feeds = FEEDS) {
-  const base = (Array.isArray(feeds) ? feeds : FEEDS).filter((feed) => feed.moduleId !== 'warframe');
+  const base = (Array.isArray(feeds) ? feeds : FEEDS).filter((feed) => feed.moduleId !== 'warframe' && !(feed.moduleId === 'ark' && arkModuleRetired(null, env)));
   if (warframeFeedDisabled(env)) return base;
   const index = base.findIndex((feed) => feed.moduleId === 'pokemongo');
   const next = base.slice();
@@ -359,6 +359,7 @@ class EventFeedPublisher {
   async publish(definition) {
     try {
       if (isNoProvisionChannelModule(definition?.moduleId)) return { skipped: 'removed-game' };
+      if (String(definition?.moduleId || '') === 'ark' && arkModuleRetired(null, this.env)) return { skipped: 'ark-retired' };
       if (definition?.moduleId === 'warframe' && warframeFeedDisabled(this.env)) return { skipped:'warframe-disabled' };
       const setup = this.state.getModuleSetup(definition.moduleId);
       const channelId = setupChannelId(setup, definition.channelName);

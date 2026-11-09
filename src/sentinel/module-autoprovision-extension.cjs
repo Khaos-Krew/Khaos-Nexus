@@ -13,7 +13,7 @@ const { renderModuleConsole } = require('./module-console.cjs');
 const { ensurePanelMessage } = require('./persistent-panel-extension.cjs');
 const { createCoalescingRunner } = require('./coalescing-runner.cjs');
 const { activeSentinelModules } = require('./retired-module-policy.cjs');
-const { isNoProvisionChannelModule } = require('./no-provision-modules.cjs');
+const { arkModuleRetired, isNoProvisionChannelModule } = require('./no-provision-modules.cjs');
 const { shouldPostLayoutMessage } = require('./manual-layout.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAutoprovision.extension');
@@ -54,6 +54,7 @@ function modulesNeedingProvision(config = {}, state, channels, roles) {
   for (const module of enabledSentinelModules(config)) {
     // Removed games never get channels/categories back, regardless of enabled flags.
     if (isNoProvisionChannelModule(module.id)) continue;
+    if (module.id === 'ark' && arkModuleRetired(config)) continue;
     const setup = state?.getModuleSetup?.(module.id) || null;
     if (setupHealthy(setup, channels, module.id)) continue;
     const access = state?.getAccessRole?.(module.id) || null;

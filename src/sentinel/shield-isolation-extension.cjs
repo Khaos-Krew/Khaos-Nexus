@@ -33,7 +33,7 @@ const INSTALLED = Symbol.for('khaos.nexus.shield.isolation.extension');
 const QUARANTINE_ALIASES = Object.freeze(['nexus quarantine', 'quarantined', 'quarantine']);
 const HELP_CHANNEL = 'verification-help';
 const HELP_CHANNEL_ALIASES = Object.freeze(['verification help', 'shield help', 'security help']);
-const INFORMATION_CHILD_ALIASES = Object.freeze(['welcome', 'rules', 'about', 'game servers', 'level up']);
+const INFORMATION_CHILD_ALIASES = Object.freeze(['welcome', 'rules', 'about', 'start here', 'game servers', 'level up']);
 const RECONCILE_MS = 5 * 60_000;
 
 function collectionValues(collection) {

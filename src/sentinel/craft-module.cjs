@@ -5,7 +5,8 @@ const { loadConfig } = require('../shared/config.cjs');
 const { categoryIdForInteraction } = require('../game-bots/category-gate.cjs');
 const { errorClass } = require('../game-bots/command-failure.cjs');
 const { craftIsStaff, decideCategory } = require('../craft/access.cjs');
-const { craftCommands, handleCraftInteraction, listingPayload, notifyOwner, startStatusLoop } = require('../craft/bot.cjs');
+const { craftCommands, handleCraftInteraction, listingPayload, notifyOwner, startStatusLoop, statusLoopHoldReason } = require('../craft/bot.cjs');
+const { seedCraftFiles } = require('../craft/seed.cjs');
 const { redactSecret } = require('../craft/protocol.cjs');
 const { openCraftStore } = require('../craft/store.cjs');
 const { installMcEconomyLoops } = require('../craft/mc-points-commands.cjs');
@@ -265,6 +266,7 @@ function attachCraftModule(client, options = {}) {
 
   const config = options.config || loadConfig();
   const store = options.store || openCraftStore(env);
+  seedCraftFiles({ dir: store.dir, env, log });
   const context = sentinalCraftContext(client, env, store, config);
   const loops = options.loops !== false;
 
@@ -281,7 +283,9 @@ function attachCraftModule(client, options = {}) {
   client.once(Events.ClientReady, () => {
     const start = async () => {
       await registerSentinalCraftCommands(client, env, config, log);
-      if (store.getStatusPanel?.()?.host) startStatusLoop(client, store, env);
+      const statusHold = statusLoopHoldReason(store);
+      if (statusHold) writeLog(log, `[Nexus Sentinal] craft status loop not started: ${statusHold}`);
+      else startStatusLoop(client, store, env);
       if (loops) installMcEconomyLoops({ store, env, log: (line) => writeLog(log, line) });
     };
     return start().catch((error) => {

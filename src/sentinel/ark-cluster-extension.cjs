@@ -229,6 +229,7 @@ function logClusterRuntime(servers = [], reason = 'refresh') {
 }
 
 async function refreshClusterPanel(client, registry, config, { reason = 'manual', poll = true } = {}) {
+  if (require('./no-provision-modules.cjs').arkModuleRetired(config)) return { skipped: 'ark-retired' };
   const guildId = String(config.discord?.guildId || '');
   if (!guildId) return { skipped: 'guild-unconfigured' };
   const guild = await client.guilds.fetch(guildId);

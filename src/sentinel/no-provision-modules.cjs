@@ -37,17 +37,26 @@ function isNoProvisionChannelModule(moduleId) {
 }
 
 class ModuleChannelsNotProvisionedError extends Error {
-  constructor(moduleId) {
+  constructor(moduleId, message = '') {
     const id = normalizeModuleId(moduleId);
     const name = NO_PROVISION_CHANNEL_MODULES[id] || id;
-    super(`${name} channels are not provisioned: the category was removed by owner-approved cleanup (2026-10-01). Game roles stay available.`);
+    super(message || `${name} channels are not provisioned: the category was removed by owner-approved cleanup (2026-10-01). Game roles stay available.`);
     this.name = 'ModuleChannelsNotProvisionedError';
     this.code = MODULE_CHANNELS_NOT_PROVISIONED;
     this.moduleId = id;
   }
 }
 
-function assertModuleChannelsProvisionable(moduleId) {
+function arkModuleRetired(config = null, env = process.env) {
+  if (/^(1|true|yes|on)$/i.test(String(env?.NEXUS_ARK_MODULE_RETIRED || '').trim())) return true;
+  return config?.modules?.ark?.retired === true;
+}
+
+function assertModuleChannelsProvisionable(moduleId, config = null) {
+  const id = normalizeModuleId(moduleId);
+  if (id === 'ark' && arkModuleRetired(config)) {
+    throw new ModuleChannelsNotProvisionedError(id, 'ARK channels are retired: the category stays hidden and is not provisioned. The ARK role is left unchanged.');
+  }
   if (isNoProvisionChannelModule(moduleId)) throw new ModuleChannelsNotProvisionedError(moduleId);
 }
 
@@ -61,6 +70,7 @@ module.exports = {
   MODULE_CHANNELS_NOT_PROVISIONED,
   ModuleChannelsNotProvisionedError,
   isNoProvisionChannelModule,
+  arkModuleRetired,
   assertModuleChannelsProvisionable,
   isModuleChannelsNotProvisionedError
 };

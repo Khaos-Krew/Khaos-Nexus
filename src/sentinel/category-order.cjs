@@ -3,7 +3,12 @@
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { MODULES } = require('../backend/modules/catalog.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
-const { respectsManualLayout } = require('./manual-layout.cjs');
+const {
+  gameCategoryOrderIds,
+  isStaffCategoryName,
+  isVoiceCategoryName,
+  respectsManualLayout
+} = require('./manual-layout.cjs');
 const { applyManagedOverwrites, existingOverwriteEntries, refusePermissionStaffFallback } = require('./staff-workspace.cjs');
 
 const DEFAULT_BOUNDARY_NAMES = Object.freeze(['hidden server', 'staff']);
@@ -119,7 +124,24 @@ function moduleCategoryEntries(channels) {
       category
     });
   }
-  return result.sort((left, right) => left.label.localeCompare(right.label, 'en', { sensitivity: 'base', numeric: true }));
+  return sortGameCategoryEntries(result);
+}
+
+function compareGameLabels(left, right) {
+  return String(left?.label || '').localeCompare(String(right?.label || ''), 'en', { sensitivity: 'base', numeric: true });
+}
+
+function sortGameCategoryEntries(entries = [], priorityIds = null) {
+  const priority = new Map((priorityIds || []).map((id, index) => [String(id), index]));
+  const ranked = priority.size > 0;
+  return [...entries].sort((left, right) => {
+    if (ranked) {
+      const leftRank = priority.has(left.moduleId) ? priority.get(left.moduleId) : Number.MAX_SAFE_INTEGER;
+      const rightRank = priority.has(right.moduleId) ? priority.get(right.moduleId) : Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+    }
+    return compareGameLabels(left, right);
+  });
 }
 
 function categoryOrderPlan(channels, boundaryNames = DEFAULT_BOUNDARY_NAMES) {
@@ -151,11 +173,95 @@ function serverCategoryOrderPlan(channels) {
   if (structural.nexusHq) entries.push({ kind: 'nexus-hq', label: 'NEXUS HQ', category: structural.nexusHq });
   if (structural.supporterHub) entries.push({ kind: 'supporter-hub', label: 'SUPPORTER HUB', category: structural.supporterHub });
   for (const module of modules) entries.push({ kind: 'game', label: module.label, moduleId: module.moduleId, category: module.category });
+  const voice = findCategoryByAliases(channels, ['voice']);
+  // VOICE is explicit so a position batch cannot leave it out. An omitted
+  // category is what Discord shifts to position 0 (the top of the list).
+  if (voice) entries.push({ kind: 'voice', label: 'VOICE', category: voice });
   if (structural.staff) entries.push({ kind: 'staff', label: 'STAFF', category: structural.staff });
   if (structural.nexusPrivate) entries.push({ kind: 'nexus-private', label: 'KHAOS NEXUS', category: structural.nexusPrivate });
   if (structural.privateReports) entries.push({ kind: 'private-reports', label: 'PRIVATE REPORTS', category: structural.privateReports });
   if (structural.ownerOnly) entries.push({ kind: 'owner-only', label: 'HIDDEN SERVER', category: structural.ownerOnly });
   return { structural, modules, entries };
+}
+
+function compareCategoryPosition(left, right) {
+  const delta = categoryPosition(left) - categoryPosition(right);
+  if (delta) return delta;
+  return String(left?.id || '').localeCompare(String(right?.id || ''));
+}
+
+function moveVoiceImmediatelyAboveStaff(categories) {
+  const voiceIndex = categories.findIndex((category) => isVoiceCategoryName(category?.name));
+  const staffIndex = categories.findIndex((category) => isStaffCategoryName(category?.name));
+  if (voiceIndex < 0 || staffIndex < 0 || voiceIndex === staffIndex - 1) return categories;
+  const voice = categories[voiceIndex];
+  const withoutVoice = categories.filter((_, index) => index !== voiceIndex);
+  const insertAt = withoutVoice.findIndex((category) => isStaffCategoryName(category?.name));
+  if (insertAt < 0) return categories;
+  withoutVoice.splice(insertAt, 0, voice);
+  return withoutVoice;
+}
+
+// Game categories trade places inside the slots they already occupy. Every
+// other category, including VOICE, stays put until VOICE is slid to sit
+// directly above STAFF. The returned list contains every category so the
+// position update cannot omit one and drop it at the top.
+function arrangeCategories(categories, orderedGameCategories = []) {
+  const sorted = [...categories].sort(compareCategoryPosition);
+  const gameIds = new Set(orderedGameCategories.map((category) => String(category?.id || '')));
+  const ordered = orderedGameCategories.filter((category) => sorted.some((item) => String(item.id) === String(category?.id || '')));
+  let cursor = 0;
+  const slotted = sorted.map((category) => {
+    if (!gameIds.has(String(category.id))) return category;
+    const next = ordered[cursor];
+    cursor += 1;
+    return next || category;
+  });
+  return moveVoiceImmediatelyAboveStaff(slotted);
+}
+
+function sameCategoryOrder(left = [], right = []) {
+  if (left.length !== right.length) return false;
+  return left.every((category, index) => String(category?.id || '') === String(right[index]?.id || ''));
+}
+
+async function applyCategoryPositions(guild, categories, reason) {
+  const updates = categories.map((category, index) => ({ channel: String(category.id), position: index }));
+  if (!updates.length) return 0;
+  if (typeof guild.channels?.setPositions === 'function') {
+    await guild.channels.setPositions(updates, reason);
+    return updates.length;
+  }
+  let moved = 0;
+  for (let index = 0; index < categories.length; index += 1) {
+    const category = categories[index];
+    if (typeof category?.setPosition !== 'function') continue;
+    await category.setPosition(index, { relative: false, reason });
+    moved += 1;
+  }
+  return moved;
+}
+
+function hierarchyLabels(entries, orderedModules, configured) {
+  if (!configured) return entries.map((entry) => entry.label);
+  const labels = [];
+  let gamesInserted = false;
+  const games = orderedModules.map((module) => module.label);
+  const hasVoice = entries.some((entry) => entry.kind === 'voice');
+  for (const entry of entries) {
+    if (entry.kind === 'game' || entry.kind === 'voice') continue;
+    if (!gamesInserted && (entry.kind === 'staff' || entry.kind === 'nexus-private' || entry.kind === 'private-reports' || entry.kind === 'owner-only')) {
+      labels.push(...games);
+      if (hasVoice) labels.push('VOICE');
+      gamesInserted = true;
+    }
+    labels.push(entry.label);
+  }
+  if (!gamesInserted) {
+    labels.push(...games);
+    if (hasVoice) labels.push('VOICE');
+  }
+  return labels;
 }
 
 function serverCategoryOrderIsCorrect(plan) {
@@ -306,11 +412,28 @@ async function reconcileServerCategoryOrder(guild, options = {}) {
   if (names.renamed) plan = serverCategoryOrderPlan(channels);
 
   const privacy = await reconcileStructuralPrivacy(guild, options, plan.structural, channels, roles);
-  const desired = plan.entries.map((entry) => entry.label);
+  const configuredIds = gameCategoryOrderIds(options.config || {}, guild?.id);
+  const preserveOrder = !configuredIds && (options.preserveCategoryOrder === true || respectsManualLayout(options.config || {}, guild?.id));
   let moved = 0;
-  const preserveOrder = options.preserveCategoryOrder === true || respectsManualLayout(options.config || {}, guild?.id);
+  let orderedModules = plan.modules;
 
-  if (!preserveOrder && !serverCategoryOrderIsCorrect(plan)) {
+  if (configuredIds || preserveOrder) {
+    const categories = categoriesFrom(channels);
+    orderedModules = configuredIds
+      ? sortGameCategoryEntries(plan.modules, configuredIds)
+      : [...plan.modules].sort((left, right) => compareCategoryPosition(left.category, right.category));
+    const sequence = arrangeCategories(categories, orderedModules.map((entry) => entry.category));
+    const current = [...categories].sort(compareCategoryPosition);
+    if (!sameCategoryOrder(sequence, current)) {
+      moved = await applyCategoryPositions(
+        guild,
+        sequence,
+        configuredIds
+          ? 'Nexus Sentinal: apply configured game category order'
+          : 'Nexus Sentinal: keep VOICE directly above STAFF'
+      );
+    }
+  } else if (!serverCategoryOrderIsCorrect(plan)) {
     const updates = categoryPositionUpdates(plan);
     if (updates.length && typeof guild.channels?.setPositions === 'function') {
       await guild.channels.setPositions(updates, 'Nexus Sentinal: enforce canonical server category hierarchy');
@@ -326,14 +449,16 @@ async function reconcileServerCategoryOrder(guild, options = {}) {
   }
 
   const missing = Object.entries(plan.structural).filter(([, value]) => !value).map(([key]) => key);
+  const hierarchy = hierarchyLabels(plan.entries, orderedModules, Boolean(configuredIds));
   return {
     ok: true,
     skipped: false,
     moved,
     renamed: names.renamed,
     orderPreserved: preserveOrder,
-    ordered: plan.modules.map((entry) => entry.label),
-    hierarchy: desired,
+    orderMode: configuredIds ? 'configured' : (preserveOrder ? 'preserved' : 'alphabetical'),
+    ordered: orderedModules.map((entry) => entry.label),
+    hierarchy: hierarchy.length ? hierarchy : plan.entries.map((entry) => entry.label),
     missing,
     boundary: String(plan.structural.staff?.name || ''),
     privacy
@@ -364,6 +489,11 @@ module.exports = {
   categoryMoveSequence,
   serverCategoryOrderPlan,
   serverCategoryOrderIsCorrect,
+  sortGameCategoryEntries,
+  arrangeCategories,
+  moveVoiceImmediatelyAboveStaff,
+  sameCategoryOrder,
+  applyCategoryPositions,
   categoryPositionUpdates,
   snapshotOrCache,
   reconcileGameCategoryNames,

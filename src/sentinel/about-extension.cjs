@@ -3,6 +3,7 @@
 const { ChannelType, Client, Events, PermissionFlagsBits } = require('discord.js');
 const { loadConfig } = require('../shared/config.cjs');
 const { findInformationCategory, valuesOf } = require('./nexus-status.cjs');
+const { foldStartHereEnabled, hiddenFromEveryone } = require('./manual-layout.cjs');
 const { managedPayloadMatches } = require('./managed-payload-compare.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.about.extension');
@@ -122,9 +123,24 @@ async function applyAboutPermissions(channel, guild, botId = '') {
 async function ensureAboutChannel(guild, options = {}) {
   const channels = await guild.channels.fetch();
   const information = findInformationCategory(channels);
+  const folded = foldStartHereEnabled(options.config || {}, guild?.id);
+  const existing = information ? findAboutChannel(channels, information.id) : findAboutChannel(channels, '');
+  const hidden = existing && hiddenFromEveryone(existing, guild?.id);
+  if (folded || hidden) {
+    return {
+      channel: existing || null,
+      category: information,
+      created: false,
+      moved: false,
+      topicUpdated: false,
+      permissionsUpdated: false,
+      folded: true,
+      skipped: folded ? 'folded-into-start-here' : 'hidden-by-hand'
+    };
+  }
   if (!information) return { channel: null, category: null, created: false, moved: false, topicUpdated: false, permissionsUpdated: false };
 
-  let channel = findAboutChannel(channels, information.id);
+  let channel = existing;
   let created = false;
   let moved = false;
   let topicUpdated = false;
@@ -289,7 +305,8 @@ async function refreshAboutPanel(client, config = {}, options = {}) {
   const guildId = String(config?.discord?.guildId || '').trim();
   if (!guildId) return { skipped: 'guild-unconfigured' };
   const guild = options.guild || await client.guilds.fetch(guildId);
-  const channelResult = await ensureAboutChannel(guild, { botId: client.user?.id });
+  const channelResult = await ensureAboutChannel(guild, { botId: client.user?.id, config });
+  if (channelResult.folded || channelResult.skipped) return { skipped: channelResult.skipped || 'folded-into-start-here' };
   if (!channelResult.channel) return { skipped: 'information-category-missing' };
   const inviteResult = await ensurePermanentInvite(channelResult.channel, { botId: client.user?.id });
   const payload = renderAboutPanel(inviteResult.url);
