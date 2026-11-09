@@ -3,7 +3,13 @@
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { MODULES } = require('../backend/modules/catalog.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
-const { respectsManualLayout } = require('./manual-layout.cjs');
+const { isStaffCategoryName, respectsManualLayout } = require('./manual-layout.cjs');
+const {
+  configuredGameCategoryOrder,
+  enforceGameCategoryOrder,
+  pinPlayerVoiceEnabled,
+  playerVoiceCategoryId
+} = require('./layout-profile.cjs');
 const { applyManagedOverwrites, existingOverwriteEntries, refusePermissionStaffFallback } = require('./staff-workspace.cjs');
 
 const DEFAULT_BOUNDARY_NAMES = Object.freeze(['hidden server', 'staff']);
@@ -11,6 +17,7 @@ const STRUCTURAL_CATEGORY_ALIASES = Object.freeze({
   information: Object.freeze(['information', 'info', 'start here']),
   nexusHq: Object.freeze(['nexus hq', 'nexus headquarters', 'community hq']),
   supporterHub: Object.freeze(['supporter hub', 'supporters hub', 'supporter lounge', 'supporters']),
+  voice: Object.freeze(['voice']),
   staff: Object.freeze(['staff', 'staff operations']),
   nexusPrivate: Object.freeze(['khaos nexus', 'nexus private', 'khaos nexus private', 'nexus operations']),
   privateReports: Object.freeze(['private reports', 'safety reports', 'reports']),
@@ -89,11 +96,21 @@ function findCategoryByAliases(channels, aliases = []) {
   return categoriesFrom(channels).find((category) => wanted.has(normalizedCategoryName(category.name))) || null;
 }
 
-function structuralCategories(channels) {
+function voiceCategoryById(channels, voiceCategoryId = '') {
+  const id = String(voiceCategoryId || '').trim();
+  if (!/^\d{17,20}$/.test(id)) return null;
+  const category = categoriesFrom(channels).find((candidate) => String(candidate?.id || '') === id) || null;
+  if (!category || isStaffCategoryName(category.name)) return null;
+  return category;
+}
+
+function structuralCategories(channels, options = {}) {
+  const voiceById = voiceCategoryById(channels, options.voiceCategoryId);
   return {
     information: findCategoryByAliases(channels, STRUCTURAL_CATEGORY_ALIASES.information),
     nexusHq: findCategoryByAliases(channels, STRUCTURAL_CATEGORY_ALIASES.nexusHq),
     supporterHub: findCategoryByAliases(channels, STRUCTURAL_CATEGORY_ALIASES.supporterHub),
+    voice: voiceById || findCategoryByAliases(channels, STRUCTURAL_CATEGORY_ALIASES.voice),
     staff: findCategoryByAliases(channels, STRUCTURAL_CATEGORY_ALIASES.staff),
     nexusPrivate: findCategoryByAliases(channels, STRUCTURAL_CATEGORY_ALIASES.nexusPrivate),
     privateReports: findCategoryByAliases(channels, STRUCTURAL_CATEGORY_ALIASES.privateReports),
@@ -101,7 +118,18 @@ function structuralCategories(channels) {
   };
 }
 
-function moduleCategoryEntries(channels) {
+function sortGameCategories(entries, gameOrder = []) {
+  const order = (Array.isArray(gameOrder) ? gameOrder : []).map((id) => String(id || '').trim().toLowerCase()).filter(Boolean);
+  const rank = new Map(order.map((id, index) => [id, index]));
+  return [...entries].sort((left, right) => {
+    const leftRank = rank.has(left.moduleId) ? rank.get(left.moduleId) : Number.MAX_SAFE_INTEGER;
+    const rightRank = rank.has(right.moduleId) ? rank.get(right.moduleId) : Number.MAX_SAFE_INTEGER;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    return left.label.localeCompare(right.label, 'en', { sensitivity: 'base', numeric: true });
+  });
+}
+
+function moduleCategoryEntries(channels, gameOrder = []) {
   const categories = categoriesFrom(channels);
   const claimed = new Set();
   const result = [];
@@ -119,15 +147,17 @@ function moduleCategoryEntries(channels) {
       category
     });
   }
-  return result.sort((left, right) => left.label.localeCompare(right.label, 'en', { sensitivity: 'base', numeric: true }));
+  return sortGameCategories(result, gameOrder);
 }
 
-function categoryOrderPlan(channels, boundaryNames = DEFAULT_BOUNDARY_NAMES) {
+function categoryOrderPlan(channels, boundaryNames = DEFAULT_BOUNDARY_NAMES, gameOrder = []) {
   const categories = categoriesFrom(channels);
-  const wantedBoundaries = new Set(boundaryNames.map(normalizedCategoryName));
+  const names = Array.isArray(boundaryNames) ? boundaryNames : DEFAULT_BOUNDARY_NAMES;
+  const order = Array.isArray(boundaryNames) ? gameOrder : (boundaryNames?.gameOrder || gameOrder);
+  const wantedBoundaries = new Set(names.map(normalizedCategoryName));
   const boundaries = categories.filter((category) => wantedBoundaries.has(normalizedCategoryName(category.name))).sort((a, b) => categoryPosition(a) - categoryPosition(b));
   if (!boundaries.length) return { boundary: null, modules: [], reason: 'Staff/hidden-server category boundary was not found.' };
-  return { boundary: boundaries[0], modules: moduleCategoryEntries(channels), reason: '' };
+  return { boundary: boundaries[0], modules: moduleCategoryEntries(channels, order), reason: '' };
 }
 
 function categoryOrderIsCorrect(plan) {
@@ -143,14 +173,15 @@ function categoryMoveSequence(plan) {
   return [...(plan?.modules || [])].reverse();
 }
 
-function serverCategoryOrderPlan(channels) {
-  const structural = structuralCategories(channels);
-  const modules = moduleCategoryEntries(channels);
+function serverCategoryOrderPlan(channels, options = {}) {
+  const structural = structuralCategories(channels, options);
+  const modules = moduleCategoryEntries(channels, options.gameOrder || []);
   const entries = [];
   if (structural.information) entries.push({ kind: 'information', label: 'INFORMATION', category: structural.information });
   if (structural.nexusHq) entries.push({ kind: 'nexus-hq', label: 'NEXUS HQ', category: structural.nexusHq });
   if (structural.supporterHub) entries.push({ kind: 'supporter-hub', label: 'SUPPORTER HUB', category: structural.supporterHub });
   for (const module of modules) entries.push({ kind: 'game', label: module.label, moduleId: module.moduleId, category: module.category });
+  if (structural.voice) entries.push({ kind: 'voice', label: 'VOICE', category: structural.voice });
   if (structural.staff) entries.push({ kind: 'staff', label: 'STAFF', category: structural.staff });
   if (structural.nexusPrivate) entries.push({ kind: 'nexus-private', label: 'KHAOS NEXUS', category: structural.nexusPrivate });
   if (structural.privateReports) entries.push({ kind: 'private-reports', label: 'PRIVATE REPORTS', category: structural.privateReports });
@@ -166,6 +197,44 @@ function serverCategoryOrderIsCorrect(plan) {
 
 function categoryPositionUpdates(plan) {
   return (plan?.entries || []).map((entry, index) => ({ channel: String(entry.category.id), position: index }));
+}
+
+// Move only the player Voice category to sit directly above Staff. Every other
+// category keeps its current relative order, so a jump to position 1 is corrected
+// without an alphabetical reshuffle.
+function voicePinUpdates(channels, options = {}) {
+  const categories = categoriesFrom(channels).sort((left, right) => categoryPosition(left) - categoryPosition(right) || String(left.id).localeCompare(String(right.id)));
+  const structural = structuralCategories(channels, options);
+  const voice = structural.voice;
+  const staff = structural.staff;
+  if (!voice || !staff || String(voice.id) === String(staff.id)) {
+    return { needed: false, reason: 'voice-or-staff-missing', updates: [] };
+  }
+  const withoutVoice = categories.filter((category) => String(category.id) !== String(voice.id));
+  const staffIndex = withoutVoice.findIndex((category) => String(category.id) === String(staff.id));
+  const currentIndex = categories.findIndex((category) => String(category.id) === String(voice.id));
+  if (staffIndex < 0 || currentIndex < 0) return { needed: false, reason: 'voice-or-staff-missing', updates: [] };
+  if (currentIndex === staffIndex) return { needed: false, reason: 'already-above-staff', updates: [] };
+  const next = [...withoutVoice];
+  next.splice(staffIndex, 0, voice);
+  return {
+    needed: true,
+    reason: '',
+    updates: next.map((category, index) => ({ channel: String(category.id), position: index }))
+  };
+}
+
+function categoryPlanOptions(config = {}) {
+  return {
+    gameOrder: configuredGameCategoryOrder(config),
+    voiceCategoryId: playerVoiceCategoryId(config)
+  };
+}
+
+function shouldPinPlayerVoice(config, guildId) {
+  if (!pinPlayerVoiceEnabled(config)) return false;
+  if (playerVoiceCategoryId(config)) return true;
+  return respectsManualLayout(config, guildId);
 }
 
 function snapshotOrCache(snapshot, manager) {
@@ -299,16 +368,20 @@ async function reconcileStructuralPrivacy(guild, options = {}, structural = null
 async function reconcileServerCategoryOrder(guild, options = {}) {
   let channels = options.channelsSnapshot || snapshotOrCache(null, guild.channels) || await guild.channels.fetch();
   const roles = options.rolesSnapshot || snapshotOrCache(null, guild.roles) || null;
-  let plan = serverCategoryOrderPlan(channels);
+  const config = options.config || {};
+  const planOptions = categoryPlanOptions(config);
+  let plan = serverCategoryOrderPlan(channels, planOptions);
   if (!plan.modules.length) return { ok: false, skipped: true, moved: 0, renamed: 0, reason: 'No game module categories found.' };
 
   const names = await reconcileGameCategoryNames(guild, plan.modules, channels);
-  if (names.renamed) plan = serverCategoryOrderPlan(channels);
+  if (names.renamed) plan = serverCategoryOrderPlan(channels, planOptions);
 
   const privacy = await reconcileStructuralPrivacy(guild, options, plan.structural, channels, roles);
   const desired = plan.entries.map((entry) => entry.label);
   let moved = 0;
-  const preserveOrder = options.preserveCategoryOrder === true || respectsManualLayout(options.config || {}, guild?.id);
+  const enforceOrder = options.enforceCategoryOrder === true || enforceGameCategoryOrder(config);
+  const preserveOrder = !enforceOrder && (options.preserveCategoryOrder === true || respectsManualLayout(config, guild?.id));
+  let voicePinned = false;
 
   if (!preserveOrder && !serverCategoryOrderIsCorrect(plan)) {
     const updates = categoryPositionUpdates(plan);
@@ -323,6 +396,13 @@ async function reconcileServerCategoryOrder(guild, options = {}) {
         moved += 1;
       }
     }
+  } else if (preserveOrder && shouldPinPlayerVoice(config, guild?.id)) {
+    const pin = voicePinUpdates(channels, planOptions);
+    if (pin.needed && typeof guild.channels?.setPositions === 'function') {
+      await guild.channels.setPositions(pin.updates, 'Nexus Sentinal: keep the player Voice category directly above Staff');
+      moved += 1;
+      voicePinned = true;
+    }
   }
 
   const missing = Object.entries(plan.structural).filter(([, value]) => !value).map(([key]) => key);
@@ -332,6 +412,7 @@ async function reconcileServerCategoryOrder(guild, options = {}) {
     moved,
     renamed: names.renamed,
     orderPreserved: preserveOrder,
+    voicePinned,
     ordered: plan.modules.map((entry) => entry.label),
     hierarchy: desired,
     missing,
@@ -365,6 +446,9 @@ module.exports = {
   serverCategoryOrderPlan,
   serverCategoryOrderIsCorrect,
   categoryPositionUpdates,
+  voicePinUpdates,
+  categoryPlanOptions,
+  shouldPinPlayerVoice,
   snapshotOrCache,
   reconcileGameCategoryNames,
   resolveAdminRoleIds,

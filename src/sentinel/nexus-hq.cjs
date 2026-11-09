@@ -3,6 +3,8 @@
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { NEXUS_RANKS } = require('../shared/ranks.cjs');
 const { applyManagedOverwrites, refusePermissionStaffFallback } = require('./staff-workspace.cjs');
+const { isStaffCategoryName, isVoiceCategoryName, respectsManualLayout } = require('./manual-layout.cjs');
+const { playerVoiceCategoryId } = require('./layout-profile.cjs');
 
 const HQ_CATEGORY_NAME = '🌐 NEXUS HQ';
 const HQ_CATEGORY_ALIASES = Object.freeze(['nexus hq', 'nexus headquarters', 'community hq']);
@@ -141,6 +143,28 @@ function overwritePlanSatisfies(channel, desiredEntries = []) {
     if ((current.allow & wanted.deny) !== 0n) return false;
   }
   return true;
+}
+
+function shouldRenameHqCategory(name) {
+  const current = String(name || '');
+  if (!current || current === HQ_CATEGORY_NAME) return false;
+  return !HQ_CATEGORY_ALIASES.includes(normalizedName(current));
+}
+
+function channelById(channels, id) {
+  const key = String(id || '');
+  if (!key) return null;
+  const direct = typeof channels?.get === 'function' ? channels.get(key) : null;
+  if (direct) return direct;
+  return valuesOf(channels).find((item) => String(item?.id || '') === key) || null;
+}
+
+function heldInVoiceOrStaff(channel, channels, config = {}) {
+  const parent = channelById(channels, channel?.parentId);
+  if (!parent || parent.type !== ChannelType.GuildCategory) return false;
+  if (isStaffCategoryName(parent.name) || isVoiceCategoryName(parent.name)) return true;
+  const voiceId = playerVoiceCategoryId(config);
+  return Boolean(voiceId) && String(parent.id) === voiceId;
 }
 
 function findHqCategory(channels) {
@@ -327,7 +351,7 @@ async function ensureCategory(guild, channels) {
     });
     channels?.set?.(String(category.id), category);
     created = true;
-  } else if (String(category.name || '') !== HQ_CATEGORY_NAME && typeof category.setName === 'function') {
+  } else if (shouldRenameHqCategory(category.name) && typeof category.setName === 'function') {
     await category.setName(HQ_CATEGORY_NAME, 'Nexus Sentinal: apply canonical Nexus HQ category name');
     renamed = true;
   }
@@ -347,7 +371,7 @@ async function applyCategoryAccess(category, guild, rankRoleIds, operatorRoleIds
   );
 }
 
-async function ensureChannel(guild, category, spec, channels) {
+async function ensureChannel(guild, category, spec, channels, config = {}) {
   const matches = matchingChannels(channels, spec);
   let channel = matches.find((candidate) => String(candidate.parentId || '') === String(category.id)) || null;
   let created = false;
@@ -355,9 +379,21 @@ async function ensureChannel(guild, category, spec, channels) {
   let renamed = false;
   let topicUpdated = false;
 
+  if (!channel) {
+    const placed = matches.find((candidate) => heldInVoiceOrStaff(candidate, channels, config));
+    if (placed) {
+      return { channel: placed, created: false, moved: false, renamed: false, topicUpdated: false, relocated: true };
+    }
+  }
+
   if (!channel && matches.length === 1) {
     channel = matches[0];
-    if (typeof channel.setParent === 'function') {
+    const parented = String(channel.parentId || '');
+    const manual = respectsManualLayout(config, guild?.id);
+    if (parented && parented !== String(category.id) && manual) {
+      return { channel, created: false, moved: false, renamed: false, topicUpdated: false, relocated: true };
+    }
+    if (parented !== String(category.id) && typeof channel.setParent === 'function') {
       await channel.setParent(String(category.id), { lockPermissions: false, reason: 'Nexus Sentinal: move existing community channel into Nexus HQ' });
       moved = true;
     }
@@ -376,7 +412,8 @@ async function ensureChannel(guild, category, spec, channels) {
     created = true;
   }
 
-  if (String(channel.name || '') !== spec.name && typeof channel.setName === 'function') {
+  const keepAliasName = respectsManualLayout(config, guild?.id) && aliasesFor(spec).has(normalizedName(channel.name));
+  if (!keepAliasName && String(channel.name || '') !== spec.name && typeof channel.setName === 'function') {
     await channel.setName(spec.name, 'Nexus Sentinal: apply canonical Nexus HQ channel name');
     renamed = true;
   }
@@ -386,7 +423,7 @@ async function ensureChannel(guild, category, spec, channels) {
     topicUpdated = true;
   }
 
-  return { channel, created, moved, renamed, topicUpdated };
+  return { channel, created, moved, renamed, topicUpdated, relocated: false };
 }
 
 function hqChildAccessSatisfies(channel, category, desiredEntries = []) {
@@ -435,10 +472,11 @@ function hqChannelsInDesiredRelativeOrder(results = []) {
 }
 
 async function orderHqChannels(results = []) {
-  if (hqChannelsInDesiredRelativeOrder(results)) return 0;
+  const ordered = (results || []).filter((item) => item?.channel && !item.relocated);
+  if (hqChannelsInDesiredRelativeOrder(ordered)) return 0;
   let changed = 0;
-  for (let index = 0; index < results.length; index += 1) {
-    const channel = results[index]?.channel;
+  for (let index = 0; index < ordered.length; index += 1) {
+    const channel = ordered[index]?.channel;
     if (!channel || typeof channel.setPosition !== 'function') continue;
     try {
       await channel.setPosition(index, { relative: false, reason: 'Nexus Sentinal: organize Nexus HQ channels' });
@@ -469,7 +507,7 @@ async function reconcileNexusHq(guild, options = {}) {
   const categoryPermissionsUpdated = await applyCategoryAccess(categoryResult.category, guild, rankRoleIds, operatorRoleIds, botId);
 
   const channelResults = [];
-  for (const spec of HQ_CHANNELS) channelResults.push(await ensureChannel(guild, categoryResult.category, spec, channels));
+  for (const spec of HQ_CHANNELS) channelResults.push(await ensureChannel(guild, categoryResult.category, spec, channels, config));
 
   const legacyOnboardingArchives = [];
   let preLocked = 0;
@@ -477,7 +515,7 @@ async function reconcileNexusHq(guild, options = {}) {
   const introductionsIndex = HQ_CHANNELS.findIndex((spec) => spec.key === 'introductions');
   if (introductionsIndex >= 0) {
     const introductions = channelResults[introductionsIndex]?.channel || null;
-    if (introductions && !hqChildAccessSatisfies(introductions, categoryResult.category, childPlan)) {
+    if (introductions && !channelResults[introductionsIndex].relocated && !hqChildAccessSatisfies(introductions, categoryResult.category, childPlan)) {
       try {
         await introductions.lockPermissions('Nexus Sentinal: inherit Shadow Recruit+ Nexus HQ access');
         preLocked += 1;
@@ -546,6 +584,9 @@ module.exports = {
   HQ_CATEGORY_NAME,
   HQ_CATEGORY_ALIASES,
   INFORMATION_CATEGORY_ALIASES,
+  shouldRenameHqCategory,
+  heldInVoiceOrStaff,
+  ensureChannel,
   HQ_CHANNELS,
   normalizedName,
   normalizeIds,

@@ -11,6 +11,16 @@ function csv(value) {
   return String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
 }
 
+function envFlag(name, fileValue, fallback) {
+  const raw = process.env[name];
+  if (raw !== undefined && String(raw).trim() !== '') return /^(1|true|yes|on)$/i.test(String(raw).trim());
+  if (typeof fileValue === 'boolean') return fileValue;
+  if (fileValue !== undefined && fileValue !== null && String(fileValue).trim() !== '') {
+    return /^(1|true|yes|on)$/i.test(String(fileValue).trim());
+  }
+  return fallback;
+}
+
 // @everyone cannot be an operator. Managed bot roles are only known at runtime
 // and are dropped by roleIdsOf. Short test ids stay; this is not a snowflake check.
 function operatorRoleIdsWithoutGuild(ids, guildId) {
@@ -63,6 +73,20 @@ function loadConfig(options = {}) {
   config.discord.respectManualLayoutGuildIds = process.env.NEXUS_RESPECT_MANUAL_LAYOUT_GUILD_IDS
     ? csv(process.env.NEXUS_RESPECT_MANUAL_LAYOUT_GUILD_IDS)
     : [];
+  // Approved Nov 9 sidebar: COD, DBD, Diablo, Destiny, and Warframe stay hub + lfg.
+  // Unset or blank keeps that slim layout. Set NEXUS_SLIM_GAME_LAYOUT=false to restore full rooms.
+  config.discord.slimGameLayout = envFlag('NEXUS_SLIM_GAME_LAYOUT', config.discord.slimGameLayout, true);
+  const voiceCategoryId = String(process.env.NEXUS_PLAYER_VOICE_CATEGORY_ID || config.discord.playerVoiceCategoryId || '').trim();
+  config.discord.playerVoiceCategoryId = /^\d{17,20}$/.test(voiceCategoryId) ? voiceCategoryId : '';
+  if (process.env.NEXUS_GAME_CATEGORY_ORDER !== undefined) {
+    config.discord.gameCategoryOrder = csv(process.env.NEXUS_GAME_CATEGORY_ORDER).map((item) => item.toLowerCase());
+  } else if (!Array.isArray(config.discord.gameCategoryOrder)) {
+    config.discord.gameCategoryOrder = [];
+  }
+  // Off by default so a deploy does not reshuffle categories. The pin below only
+  // slides the player Voice category back above Staff when it has jumped.
+  config.discord.enforceGameCategoryOrder = envFlag('NEXUS_ENFORCE_GAME_CATEGORY_ORDER', config.discord.enforceGameCategoryOrder, false);
+  config.discord.pinPlayerVoice = envFlag('NEXUS_PIN_PLAYER_VOICE', config.discord.pinPlayerVoice, true);
   if (process.env.NEXUS_SENTINAL_ADMIN_URL) config.discord.sentinalAdminUrl = process.env.NEXUS_SENTINAL_ADMIN_URL;
   if (process.env.NEXUS_SENTINAL_ADMIN_TOKEN_ENV) config.discord.sentinalAdminTokenEnv = process.env.NEXUS_SENTINAL_ADMIN_TOKEN_ENV;
   if (process.env.NEXUS_STATUS_CHANNEL_ID) config.discord.nexusStatus.channelId = process.env.NEXUS_STATUS_CHANNEL_ID;
@@ -86,4 +110,4 @@ function envSecret(name) {
   return name ? String(process.env[name] || '') : '';
 }
 
-module.exports = { loadConfig, envSecret, csv, readJson };
+module.exports = { loadConfig, envSecret, csv, envFlag, readJson };
