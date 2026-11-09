@@ -7,10 +7,10 @@ const http = require('node:http');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
-const { PermissionFlagsBits } = require('discord.js');
+const { GatewayIntentBits, PermissionFlagsBits } = require('discord.js');
 const { SourceRcon } = require('../src/backend/transports/source-rcon.cjs');
 const { decideCategory, realmDecisionAllowed } = require('../src/craft/access.cjs');
-const { handleCraftInteraction } = require('../src/craft/bot.cjs');
+const { craftClientIntents, handleCraftInteraction } = require('../src/craft/bot.cjs');
 const { startNexusCraft } = require('../src/craft/boot.cjs');
 const { craftHelpText } = require('../src/craft/help.cjs');
 const {
@@ -359,6 +359,8 @@ test('help text covers setup and the edition matrix', () => {
   assert.match(help, /no official Realms API/);
   assert.match(help, /Bedrock dedicated server: status ping only/);
   assert.match(help, /Java dedicated server: status ping and full RCON/);
+  assert.match(help, /Server Members/);
+  assert.match(help, /\/mcrank preview/);
 });
 
 test('minecraft economy loops start behind the flags without waiting for Discord', async () => {
@@ -461,7 +463,7 @@ test('Craft slash commands stay inside the Minecraft bot', () => {
   const { PermissionFlagsBits } = require('discord.js');
   const { craftCommands } = require('../src/craft/bot.cjs');
   const commands = craftCommands({}).map((command) => command.toJSON());
-  assert.deepEqual(commands.map((command) => command.name), ['craft', 'mcrcon', 'mc', 'realm']);
+  assert.deepEqual(commands.map((command) => command.name), ['craft', 'mcrcon', 'mcrank', 'mc', 'realm']);
   const hidden = commands.find((command) => command.name === 'mc').options.map((option) => option.name);
   assert.deepEqual(hidden.filter((name) => ['link', 'unlink', 'shop', 'starter', 'mcadmin'].includes(name)), []);
   const shown = craftCommands({
@@ -469,7 +471,7 @@ test('Craft slash commands stay inside the Minecraft bot', () => {
     MC_SHOP_ENABLED: 'true',
     MC_STARTER_KIT_ENABLED: 'true'
   }).map((command) => command.toJSON());
-  assert.deepEqual(shown.map((command) => command.name), ['craft', 'mcrcon', 'mc', 'mcadmin', 'realm']);
+  assert.deepEqual(shown.map((command) => command.name), ['craft', 'mcrcon', 'mcrank', 'mc', 'mcadmin', 'realm']);
   const member = shown.find((command) => command.name === 'mc').options.map((option) => option.name);
   assert.deepEqual(member.filter((name) => ['link', 'unlink', 'shop', 'starter'].includes(name)), ['link', 'unlink', 'shop', 'starter']);
   const mcadmin = shown.find((command) => command.name === 'mcadmin');
@@ -479,4 +481,40 @@ test('Craft slash commands stay inside the Minecraft bot', () => {
     for (const child of option.options || []) walk(child, `${label}.${child.name}`);
   }
   for (const command of commands) walk(command, command.name);
+  const rank = commands.find((command) => command.name === 'mcrank');
+  assert.deepEqual(rank.options.map((option) => option.name), ['preview', 'sync']);
+  assert.equal(craftClientIntents({}).includes(GatewayIntentBits.GuildMembers), false);
+  assert.equal(craftClientIntents({ MC_RANK_SYNC_ENABLED: 'true' }).includes(GatewayIntentBits.GuildMembers), true);
+  assert.equal(craftClientIntents({ MC_RANK_SYNC_ENABLED: 'true' }).includes(GatewayIntentBits.Guilds), true);
+});
+
+test('staff /mcrank preview says rank sync is off until the flag is enabled', async () => {
+  const { mcMemberText } = require('../src/shared/mc-member-text.cjs');
+  const replies = [];
+  const interaction = {
+    guildId: OWNER,
+    channel: { parentId: CATEGORY },
+    commandName: 'mcrank',
+    user: { id: OWNER },
+    memberPermissions: { has: (bit) => bit === PermissionFlagsBits.Administrator },
+    isChatInputCommand: () => true,
+    isButton: () => false,
+    isModalSubmit: () => false,
+    options: {
+      getSubcommand: () => 'preview',
+      getSubcommandGroup: () => null,
+      getMember: () => null,
+      getUser: () => null
+    },
+    async deferReply() {},
+    async editReply(payload) { replies.push(payload); },
+    async reply(payload) { replies.push(payload); }
+  };
+  await handleCraftInteraction(interaction, {
+    env: { NEXUS_CRAFT_DISCORD_CATEGORY_ID: CATEGORY },
+    store: {},
+    config: { discord: {} },
+    rankSync: { enabled: false }
+  });
+  assert.equal(replies.at(-1)?.content, mcMemberText('rank-sync-disabled'));
 });

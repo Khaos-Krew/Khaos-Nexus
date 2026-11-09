@@ -235,6 +235,11 @@ class PostgresMcPoints {
     if (!ready.ok) return ready;
     return this.#touch((memory) => memory.status(input), new Set(['links']));
   }
+  async listVerifiedLinks() {
+    const ready = await this.#ready();
+    if (!ready.ok) return [];
+    return this.#touch((memory) => memory.listVerifiedLinks(), new Set(['links']));
+  }
   async quote(input) {
     if (!this.flags().shopEnabled) return { ok: false, reason: 'mc-shop-disabled' };
     const ready = await this.#ready();

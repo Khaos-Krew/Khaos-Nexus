@@ -47,6 +47,10 @@ function httpMinecraftPoints(env = process.env) {
     confirm: (input) => call('/mc/link/confirm', input),
     unlink: (input) => call('/mc/unlink', input),
     status: (input) => call(`/mc/link/${encodeURIComponent(input.discordUserId)}`, null, 'GET'),
+    listLinks: async () => {
+      const result = await economyRequest('/mc/links', { method: 'GET', env, timeoutMs: 15000 });
+      return Array.isArray(result.links) ? result.links : [];
+    },
     quote: (input) => call('/mc-shop/quote', input),
     buy: (input) => call('/mc-shop/buy', input),
     claimStarterKit: (input) => call('/mc/starter-kit/claim', input),
