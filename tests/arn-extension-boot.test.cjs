@@ -16,8 +16,9 @@ test('entry installs ARN hooks after the Client swap and before bot.cjs', () => 
   const live = entry.lastIndexOf('installArnLiveBoardExtension()');
   const cache = entry.lastIndexOf('installArnCacheExtension()');
   const botRequire = entry.lastIndexOf("require('./bot.cjs')");
-  assert.ok(mention > 0 && mention < ensure, 'Guild Messages for ARN is the last Client swap');
-  assert.ok(ensure < intake && intake < live && live < cache && cache < botRequire);
+  const tempVoice = entry.lastIndexOf('installTempVoiceExtension()');
+  assert.ok(mention > 0 && mention < ensure, 'ARN Guild Messages is installed before temporary voice');
+  assert.ok(ensure < intake && intake < live && live < cache && cache < tempVoice && tempVoice < botRequire, 'temporary voice is the last Client swap');
   assert.equal(entry.split('installArnLiveBoardExtension()').length - 1, 1);
   assert.equal(entry.split('installArnIntakeExtension()').length - 1, 1);
   assert.doesNotMatch(shiny, /installArnLiveBoardExtension/);

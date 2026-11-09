@@ -9,6 +9,7 @@ const {
   playerVoiceCategoryEnabled,
   respectsManualLayout
 } = require('./manual-layout.cjs');
+const { isSentinalTempVoiceChannel } = require('./temp-voice.cjs');
 
 const HQ_CATEGORY_NAME = '🌐 NEXUS HQ';
 const HQ_CATEGORY_ALIASES = Object.freeze(['nexus hq', 'nexus headquarters', 'community hq']);
@@ -354,7 +355,9 @@ async function applyCategoryAccess(category, guild, rankRoleIds, operatorRoleIds
 }
 
 async function ensureChannel(guild, category, spec, channels, options = {}) {
-  const matches = matchingChannels(channels, spec);
+  // A temporary room or the open lobby can share a display name with Nexus
+  // Lounge or AFK only if someone renamed it. Never adopt, move, or rename it.
+  const matches = matchingChannels(channels, spec).filter((channel) => !isSentinalTempVoiceChannel(channel));
   let channel = matches.find((candidate) => String(candidate.parentId || '') === String(category.id)) || null;
   let created = false;
   let moved = false;
@@ -411,6 +414,7 @@ async function lockHqChildren(category, channels, desiredEntries = [], excludedI
   for (const channel of valuesOf(channels)) {
     if (String(channel?.parentId || '') !== String(category.id)) continue;
     if (excluded.has(String(channel.id))) continue;
+    if (isSentinalTempVoiceChannel(channel)) continue;
     if (hqChildAccessSatisfies(channel, category, desiredEntries)) continue;
     if (typeof channel.lockPermissions !== 'function') {
       blocked.push(String(channel?.name || channel?.id || 'unknown'));

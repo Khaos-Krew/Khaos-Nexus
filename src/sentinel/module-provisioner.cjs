@@ -17,6 +17,7 @@ const {
   slimGameLayoutEnabled
 } = require('./manual-layout.cjs');
 const { isSlimGameModule, textNamesForLayout } = require('./layout-collapse.cjs');
+const { isSentinalTempVoiceChannel } = require('./temp-voice.cjs');
 
 const GAME_BOT_JTC = new Set(GAME_BOT_JTC_MODULES);
 
@@ -102,7 +103,9 @@ async function triggerParentId(guild, triggerChannel, fallbackCategoryId = '') {
 // channel and does not pull consoles out of STAFF or triggers out of VOICE.
 async function resolveManagedChannel(guild, category, name, type, { createMissing = true, moveReason = 'Nexus Sentinal module category repair' } = {}) {
   const all = await guild.channels.fetch();
-  const named = namedChannels(all, type, name);
+  // The open lobby and its rooms are not module channels. Repair must not
+  // move them or sync category permissions onto them.
+  const named = namedChannels(all, type, name).filter((channel) => !isSentinalTempVoiceChannel(channel));
   const categoryId = String(category?.id || '');
   const inCategory = named.find((channel) => String(channel?.parentId || '') === categoryId);
   if (inCategory) return { channel: inCategory, created: false, moved: false, relocated: false, hidden: hiddenFromEveryone(inCategory, guild.id) };
@@ -346,6 +349,10 @@ class ModuleProvisioner {
     if (!this.state.getTempLobby(String(channelId))) return false;
     try {
       const channel = await guild.channels.fetch(String(channelId));
+      if (isSentinalTempVoiceChannel(channel)) {
+        this.state.removeTempLobby(String(channelId));
+        return false;
+      }
       if (channel?.type === ChannelType.GuildVoice && channel.members.size > 0) return false;
       if (channel) await channel.delete('Nexus Sentinal temporary lobby empty');
     } catch {}
@@ -372,6 +379,7 @@ class ModuleProvisioner {
         const guild = await client.guilds.fetch(lobby.guildId);
         const channel = await guild.channels.fetch(channelId);
         if (!channel) this.state.removeTempLobby(channelId);
+        else if (isSentinalTempVoiceChannel(channel)) this.state.removeTempLobby(channelId);
         else if (channel.type === ChannelType.GuildVoice && channel.members.size === 0) {
           await channel.delete('Nexus Sentinal startup cleanup');
           this.state.removeTempLobby(channelId);

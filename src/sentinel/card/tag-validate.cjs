@@ -665,6 +665,7 @@ module.exports = {
   canAddTag,
   validateTag,
   validatePlatform,
+  denylistReason,
   foldedForms,
   lookupSkeleton,
   structuralReason

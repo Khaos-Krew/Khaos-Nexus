@@ -1,6 +1,6 @@
 # Join-to-create voice lobbies
 
-Each game bot owns the join-to-create lobby in its own category. Nexus Sentinal no longer creates temporary voice channels for ARK, Warframe, or Diablo IV. Sanctuary Nexus has no new live-game feed in this slice; it only takes over its own lobby.
+Each game bot owns the join-to-create lobby in its own category. Nexus Sentinal no longer creates temporary voice channels for ARK, Warframe, or Diablo IV. The separate open player lobby, `➕ Create a Voice Chat`, is off unless `SENTINAL_TEMP_VOICE=true`. See `docs/ops/SENTINAL_TEMP_VOICE.md`. Sanctuary Nexus has no new live-game feed in this slice; it only takes over its own lobby.
 
 ## Discord permissions
 
