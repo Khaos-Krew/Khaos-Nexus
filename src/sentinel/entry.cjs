@@ -147,4 +147,7 @@ installArnIntakeExtension();
 require('./arn-live-board-extension.cjs').installArnLiveBoardExtension();
 require('./arn-cache-extension.cjs').installArnCacheExtension();
 
+// Craft's Discord commands. Off unless SENTINAL_CRAFT_MODULE=true.
+require('./craft-module-extension.cjs').installCraftModuleExtension();
+
 require('./bot.cjs');

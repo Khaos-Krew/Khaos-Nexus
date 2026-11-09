@@ -194,4 +194,12 @@ function installMcShopUiExtension() {
   };
 }
 
-module.exports = { installMcShopUiExtension, handleMcShopInteraction, openMinecraftShop, mcShopBuyFailureText, mcShopConfirmText, mcShopReceiptText };
+module.exports = {
+  installMcShopUiExtension,
+  handleMcShopInteraction,
+  openMinecraftShop,
+  claimMinecraftStarter: handleStarter,
+  mcShopBuyFailureText,
+  mcShopConfirmText,
+  mcShopReceiptText
+};

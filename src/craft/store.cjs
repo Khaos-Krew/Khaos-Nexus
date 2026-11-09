@@ -149,6 +149,10 @@ class CraftStore {
     return Object.values(this.readState().listings || {});
   }
 
+  listApplications() {
+    return Object.values(this.readState().applications || {});
+  }
+
   addApplication({ listingId, applicantId, gamertag, note = '' } = {}) {
     const listing = this.getListing(listingId);
     const applicant = snowflake(applicantId);

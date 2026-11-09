@@ -28,6 +28,7 @@ const required = [
   'src/sentinel/nexus-economy-identity-hold.cjs',
   'src/economy-worker/ark-np-postgres.cjs', 'src/economy-worker/ark-staff-auth.cjs', 'src/economy-worker/legacy-bank-flat.cjs',
   'src/sentinel/mc-shop-ui-extension.cjs', 'src/sentinel/ark-np-shop-ui.cjs', 'src/sentinel/ark-np-delivery.cjs',
+  'src/sentinel/craft-module.cjs', 'src/sentinel/craft-module-extension.cjs',
   'src/sentinel/staff-roles.cjs',
   'scripts/legacy-bank-flat.cjs',
   'src/game-bots/discord-env.cjs', 'src/game-bots/health.cjs', 'src/game-bots/start.cjs',
