@@ -225,7 +225,12 @@ async function repairModuleIds(interaction, moduleIds, title) {
       if (setup.createdChannels.length) changes.push(`restored ${setup.createdChannels.length} channel${setup.createdChannels.length === 1 ? '' : 's'}`);
       lines.push(`✅ **${module.name}** — ${changes.length ? changes.join(' • ') : 'layout already complete'}`);
     } catch (error) {
-      if (isModuleChannelsNotProvisionedError(error)) lines.push(`⏭️ **${module.name}** — channels not provisioned (removed game; role kept)`);
+      if (isModuleChannelsNotProvisionedError(error)) {
+        const retired = /retired/i.test(String(error.message || ''));
+        lines.push(retired
+          ? `⏭️ **${module.name}** — retired; hidden channels were left alone and the role was kept`
+          : `⏭️ **${module.name}** — channels not provisioned (removed game; role kept)`);
+      }
       else lines.push(`⚠️ **${module.name}** — ${String(error?.message || error).slice(0, 160)}`);
     }
   }

@@ -5,6 +5,17 @@ const { NEXUS_RANKS } = require('../shared/ranks.cjs');
 const { MODULES, getModule } = require('../backend/modules/catalog.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
 const { isStaffCategoryChannel, isStaffLocated } = require('./manual-layout.cjs');
+const { arkModuleRetired } = require('./no-provision-modules.cjs');
+
+const HAND_HIDDEN_CHANNEL_KEYS = new Set(['cobblemon', 'about', 'patchnotes']);
+
+function channelNameKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function isHandHiddenChannel(channel) {
+  return HAND_HIDDEN_CHANNEL_KEYS.has(channelNameKey(channel?.name));
+}
 
 function normalizeName(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -143,6 +154,17 @@ function managedCategoryChannels(source, category) {
 }
 
 async function reconcileModuleAccessPolicy(guild, moduleId, category, options = {}) {
+  if (arkModuleRetired(options.config) && String(moduleId || '').toLowerCase() === 'ark') {
+    return {
+      ok: true,
+      skipped: true,
+      moduleId,
+      categoryId: String(category?.id || ''),
+      reason: 'ark-retired',
+      changed: 0,
+      channels: []
+    };
+  }
   let channelIndex = options.channelsSnapshot || null;
   if (!channelIndex && typeof guild?.channels?.fetch === 'function') {
     channelIndex = await guild.channels.fetch().catch(() => null);
@@ -164,14 +186,14 @@ async function reconcileModuleAccessPolicy(guild, moduleId, category, options = 
   let changed = 0;
   const results = [];
   for (const channel of channels) {
-    if (isStaffCategoryChannel(channel) || isStaffLocated(channel, channelIndex)) {
+    if (isStaffCategoryChannel(channel) || isStaffLocated(channel, channelIndex) || isHandHiddenChannel(channel)) {
       results.push({
         channelId: String(channel.id),
         channelName: String(channel.name || ''),
         ok: true,
         changed: 0,
         skipped: true,
-        reason: 'staff-category'
+        reason: isHandHiddenChannel(channel) ? 'hidden-by-hand' : 'staff-category'
       });
       continue;
     }
@@ -222,6 +244,10 @@ async function reconcileExistingModuleAccessPolicies(guild, { state = null, conf
   let changed = 0;
   for (const moduleId of ids) {
     if (!getModule(moduleId)) continue;
+    if (arkModuleRetired(config) && String(moduleId).toLowerCase() === 'ark') {
+      modules.push({ moduleId, ok: true, skipped: true, reason: 'ark-retired' });
+      continue;
+    }
     const category = strictCategoryMatch(channels, moduleId);
     if (!category) {
       modules.push({ moduleId, ok: true, skipped: true, reason: 'no-unique-exact-category' });

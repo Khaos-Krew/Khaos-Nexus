@@ -267,6 +267,7 @@ function sendableChannel(channel) {
 }
 
 async function resolveAlertChannel(guild, { modRelated = false, env = process.env } = {}) {
+  if (require('./no-provision-modules.cjs').arkModuleRetired(null, env)) return null;
   const configuredId = String(modRelated ? env.ARK_MOD_UPDATE_CHANNEL_ID || '' : env.ARK_UPDATE_ALERT_CHANNEL_ID || '').trim();
   if (configuredId) {
     try {

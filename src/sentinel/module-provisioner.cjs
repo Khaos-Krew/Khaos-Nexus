@@ -6,7 +6,17 @@ const { GAME_BOT_JTC_MODULES } = require('../game-bots/join-to-create.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
 const { reconcileModuleAccessPolicy } = require('./module-access-policy.cjs');
 const { assertModuleChannelsProvisionable } = require('./no-provision-modules.cjs');
-const { hiddenFromEveryone, isProtectedLayoutCategory, respectsManualLayout } = require('./manual-layout.cjs');
+const {
+  channelParentIsPlayerVoice,
+  findPlayerVoiceCategory,
+  hiddenFromEveryone,
+  isProtectedLayoutCategory,
+  isStaffLocated,
+  playerVoiceCategoryEnabled,
+  respectsManualLayout,
+  slimGameLayoutEnabled
+} = require('./manual-layout.cjs');
+const { isSlimGameModule, textNamesForLayout } = require('./layout-collapse.cjs');
 
 const GAME_BOT_JTC = new Set(GAME_BOT_JTC_MODULES);
 
@@ -150,7 +160,7 @@ class ModuleProvisioner {
 
   async category(guild, moduleId, categoryId = '') {
     // Shared choke point: every path that finds/creates a module category runs here.
-    assertModuleChannelsProvisionable(moduleId);
+    assertModuleChannelsProvisionable(moduleId, this.config);
     const layout = layoutFor(moduleId);
     const displayName = desiredCategoryName(moduleId);
     if (categoryId) {
@@ -196,7 +206,7 @@ class ModuleProvisioner {
   async provision(guild, moduleId, categoryId = '') {
     const module = getModule(moduleId);
     if (!module) throw new Error(`Unknown module: ${moduleId}`);
-    assertModuleChannelsProvisionable(moduleId);
+    assertModuleChannelsProvisionable(moduleId, this.config);
     const layout = layoutFor(moduleId);
     const categoryResult = await this.category(guild, moduleId, categoryId);
     const category = categoryResult.category;
@@ -204,9 +214,8 @@ class ModuleProvisioner {
     const createdChannels = [];
     const movedChannels = [];
     const preserveManualLayout = respectsManualLayout(this.config, guild.id);
-    const textNames = preserveManualLayout
-      ? layout.text.filter((name) => name === layout.consoleChannel)
-      : layout.text;
+    const slimLayout = slimGameLayoutEnabled(this.config, guild.id) && isSlimGameModule(moduleId);
+    const textNames = textNamesForLayout(moduleId, layout, { slim: slimLayout, preserveManualLayout });
 
     for (const name of textNames) {
       const result = await this.textChannel(guild, category, name);
@@ -221,7 +230,31 @@ class ModuleProvisioner {
       if (result.moved) movedChannels.push(name);
     }
 
-    const builderResult = await this.lobbyBuilder(guild, category, layout.lobbyBuilder, { createMissing: !preserveManualLayout });
+    const playerVoice = playerVoiceCategoryEnabled(this.config, guild.id);
+    const topology = await guild.channels.fetch();
+    const voiceCategory = playerVoice
+      ? findPlayerVoiceCategory(topology, { categoryId: this.config.discord?.playerVoiceCategoryId || '' })
+      : null;
+    // A missing builder is created under VOICE only when that category exists.
+    // It is never created back under the game category while the flag is on.
+    const lobbyParent = playerVoice && voiceCategory ? voiceCategory : category;
+    const createLobby = playerVoice ? Boolean(voiceCategory) : !preserveManualLayout;
+    const builderResult = await this.lobbyBuilder(guild, lobbyParent, layout.lobbyBuilder, { createMissing: createLobby });
+    if (playerVoice && voiceCategory && builderResult.channel && !builderResult.created) {
+      const parentId = String(builderResult.channel.parentId || '');
+      const inGameCategory = parentId === String(category.id);
+      const inStaff = isStaffLocated(builderResult.channel, topology);
+      const alreadyInVoice = parentId === String(voiceCategory.id) || channelParentIsPlayerVoice(builderResult.channel, topology);
+      if (inGameCategory && !inStaff && !alreadyInVoice && typeof builderResult.channel.setParent === 'function') {
+        await builderResult.channel.setParent(String(voiceCategory.id), {
+          lockPermissions: false,
+          reason: 'Nexus Sentinal: keep join-to-create lobby in the player Voice category'
+        });
+        builderResult.channel.parentId = String(voiceCategory.id);
+        builderResult.moved = true;
+        builderResult.relocated = false;
+      }
+    }
     const builder = builderResult.channel;
     if (builder && builderResult.created) createdChannels.push(layout.lobbyBuilder);
     if (builder && builderResult.moved) movedChannels.push(layout.lobbyBuilder);
@@ -272,6 +305,8 @@ class ModuleProvisioner {
   }
 
   async createOrReuseLobby(member, setup, triggerChannel = null) {
+    // ARK, Warframe, and Diablo IV rooms are opened by their game bots.
+    // Those bots also parent the room on the builder's current category.
     if (GAME_BOT_JTC.has(setup?.moduleId)) return null;
     const parentId = await triggerParentId(member?.guild, triggerChannel, setup?.categoryId);
     const existingState = this.state.findTempLobbyByOwner(setup.moduleId, String(member.id));

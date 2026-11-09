@@ -6,6 +6,17 @@ const STAFF_CATEGORY_NAMES = new Set(['staff', 'staff operations']);
 const INFORMATION_CATEGORY_NAMES = new Set(['information', 'info', 'start here']);
 const VOICE_CATEGORY_NAMES = new Set(['voice']);
 
+// Consoles and backups were moved into STAFF by hand. Repair must not file
+// them back into the game category. The provisioner already leaves any
+// channel that has a parent where it is; this list is the operator-facing set.
+const STAFF_HELD_LAYOUT_CHANNELS = Object.freeze([
+  'minecraft-console',
+  'minecraft-backups',
+  'ark-console',
+  'palworld-console',
+  'palworld-backups'
+]);
+
 function normalizedCategoryName(value) {
   return String(value || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -32,6 +43,70 @@ function respectsManualLayout(config = {}, guildId = '') {
   return Boolean(guild) && list.includes(guild);
 }
 
+function featureGuildIds(discord = {}, key = '') {
+  const specific = guildIdList(discord[`${key}GuildIds`]);
+  if (specific.length) return specific;
+  return guildIdList(discord.layoutGuildIds);
+}
+
+function featureEnabledForGuild(config = {}, key = '', guildId = '') {
+  const discord = config.discord || {};
+  if (!flagEnabled(discord[key])) return false;
+  const list = featureGuildIds(discord, key);
+  if (!list.length) return true;
+  const guild = String(guildId || '').trim();
+  return Boolean(guild) && list.includes(guild);
+}
+
+function slimGameLayoutEnabled(config = {}, guildId = '') {
+  return featureEnabledForGuild(config, 'slimGameLayout', guildId);
+}
+
+function playerVoiceCategoryEnabled(config = {}, guildId = '') {
+  return featureEnabledForGuild(config, 'playerVoiceCategory', guildId);
+}
+
+function foldStartHereEnabled(config = {}, guildId = '') {
+  return featureEnabledForGuild(config, 'foldStartHere', guildId);
+}
+
+// Empty means "keep today's order". "minecraft-first" (or a module id of
+// minecraft alone) puts Minecraft first and leaves every other game
+// alphabetical. A comma list is a priority prefix; unlisted games follow A-Z.
+function gameCategoryOrderIds(config = {}, guildId = '') {
+  const discord = config.discord || {};
+  const raw = discord.gameCategoryOrder;
+  if (raw == null || raw === false) return null;
+  const text = (Array.isArray(raw) ? raw.join(',') : String(raw)).trim();
+  if (!text) return null;
+  const list = featureGuildIds(discord, 'gameCategoryOrder');
+  if (list.length) {
+    const guild = String(guildId || '').trim();
+    if (!guild || !list.includes(guild)) return null;
+  }
+  const lowered = text.toLowerCase();
+  if (['minecraft-first', 'minecraft', 'true', 'yes', 'on', '1'].includes(lowered)) return ['minecraft'];
+  const ids = text.split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
+  return ids.length ? ids : null;
+}
+
+function findPlayerVoiceCategory(channels, { categoryId = '' } = {}) {
+  const categories = [...(channels?.values?.() || [])].filter((channel) => channel?.type === ChannelType.GuildCategory);
+  const wantedId = String(categoryId || '').trim();
+  if (wantedId) {
+    const byId = categories.find((channel) => String(channel.id) === wantedId);
+    if (byId) return byId;
+  }
+  return categories.find((channel) => isVoiceCategoryName(channel.name)) || null;
+}
+
+function channelParentIsPlayerVoice(channel, channels) {
+  if (!channel || channel.type !== ChannelType.GuildVoice) return false;
+  if (isVoiceCategoryName(channel.parent?.name)) return true;
+  const parent = channelById(channels, channel.parentId);
+  return isVoiceCategoryName(parent?.name);
+}
+
 function isStaffCategoryName(name) {
   return STAFF_CATEGORY_NAMES.has(normalizedCategoryName(name));
 }
@@ -42,6 +117,11 @@ function isInformationCategoryName(name) {
 
 function isVoiceCategoryName(name) {
   return VOICE_CATEGORY_NAMES.has(normalizedCategoryName(name));
+}
+
+function isHandHiddenChannelName(name) {
+  const key = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return key === 'cobblemon' || key === 'about' || key === 'patchnotes';
 }
 
 function isProtectedLayoutCategory(name) {
@@ -82,6 +162,7 @@ function hiddenFromEveryone(channel, guildId = '') {
 // to recreate.
 function shouldPostLayoutMessage(channel, { categoryId = '', channels = null, guildId = '' } = {}) {
   if (!channel) return false;
+  if (isHandHiddenChannelName(channel.name) && hiddenFromEveryone(channel, guildId || channel.guild?.id)) return false;
   if (isStaffLocated(channel, channels) || isStaffCategoryChannel(channel)) return false;
   const parentId = String(channel.parentId || '');
   const wanted = String(categoryId || '');
@@ -93,10 +174,17 @@ function shouldPostLayoutMessage(channel, { categoryId = '', channels = null, gu
 module.exports = {
   INFORMATION_CATEGORY_NAMES,
   STAFF_CATEGORY_NAMES,
+  STAFF_HELD_LAYOUT_CHANNELS,
   VOICE_CATEGORY_NAMES,
+  channelParentIsPlayerVoice,
+  featureEnabledForGuild,
+  findPlayerVoiceCategory,
   flagEnabled,
+  foldStartHereEnabled,
+  gameCategoryOrderIds,
   guildIdList,
   hiddenFromEveryone,
+  isHandHiddenChannelName,
   isInformationCategoryName,
   isProtectedLayoutCategory,
   isStaffCategoryChannel,
@@ -104,6 +192,8 @@ module.exports = {
   isStaffLocated,
   isVoiceCategoryName,
   normalizedCategoryName,
+  playerVoiceCategoryEnabled,
   respectsManualLayout,
-  shouldPostLayoutMessage
+  shouldPostLayoutMessage,
+  slimGameLayoutEnabled
 };

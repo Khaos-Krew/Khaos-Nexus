@@ -482,6 +482,13 @@ async function publishStatusPanel(client, store, panel) {
   return result;
 }
 
+function statusLoopHoldReason(store) {
+  const panel = store?.getStatusPanel?.() || null;
+  if (panel?.host) return '';
+  if (!panel) return 'status panel is not saved';
+  return 'status panel host is missing';
+}
+
 function startStatusLoop(client, store, env) {
   if (client[LOOP]) return;
   const seconds = Number(env.NEXUS_CRAFT_STATUS_REFRESH_SECONDS || 120);
@@ -907,7 +914,9 @@ function startCraftDiscord({ env = process.env, state = {}, token, client } = {}
     void registerCraftCommands(discord, env).catch((error) => {
       console.warn(`[Nexus Craft] command registration class=${errorClass(error)}`);
     });
-    if (store.getStatusPanel()?.host) startStatusLoop(discord, store, env);
+    const statusHold = statusLoopHoldReason(store);
+    if (statusHold) console.log(`[Nexus Craft] status loop not started: ${statusHold}`);
+    else startStatusLoop(discord, store, env);
     installMcEconomyLoops({ store, env });
   });
   discord.on(Events.Error, (error) => console.error(`[Nexus Craft] Discord error class=${errorClass(error)}`));
@@ -923,5 +932,6 @@ module.exports = {
   queryStatus,
   registerCraftCommands,
   startCraftDiscord,
-  startStatusLoop
+  startStatusLoop,
+  statusLoopHoldReason
 };

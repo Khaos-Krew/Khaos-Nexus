@@ -63,6 +63,29 @@ function loadConfig(options = {}) {
   config.discord.respectManualLayoutGuildIds = process.env.NEXUS_RESPECT_MANUAL_LAYOUT_GUILD_IDS
     ? csv(process.env.NEXUS_RESPECT_MANUAL_LAYOUT_GUILD_IDS)
     : [];
+  // All of the layout flags below default off so a deploy does not move or
+  // recreate channels until the operator sets them. NEXUS_LAYOUT_GUILD_IDS
+  // limits every new flag when that flag does not have its own guild list.
+  config.discord.layoutGuildIds = process.env.NEXUS_LAYOUT_GUILD_IDS
+    ? csv(process.env.NEXUS_LAYOUT_GUILD_IDS)
+    : [];
+  config.discord.slimGameLayout = /^(1|true|yes|on)$/i.test(String(process.env.NEXUS_SLIM_GAME_LAYOUT || '').trim());
+  config.discord.slimGameLayoutGuildIds = process.env.NEXUS_SLIM_GAME_LAYOUT_GUILD_IDS
+    ? csv(process.env.NEXUS_SLIM_GAME_LAYOUT_GUILD_IDS)
+    : [];
+  config.discord.playerVoiceCategory = /^(1|true|yes|on)$/i.test(String(process.env.NEXUS_PLAYER_VOICE_CATEGORY || '').trim());
+  config.discord.playerVoiceCategoryGuildIds = process.env.NEXUS_PLAYER_VOICE_CATEGORY_GUILD_IDS
+    ? csv(process.env.NEXUS_PLAYER_VOICE_CATEGORY_GUILD_IDS)
+    : [];
+  config.discord.playerVoiceCategoryId = String(process.env.NEXUS_PLAYER_VOICE_CATEGORY_ID || '').trim();
+  config.discord.gameCategoryOrder = String(process.env.NEXUS_GAME_CATEGORY_ORDER || '').trim();
+  config.discord.gameCategoryOrderGuildIds = process.env.NEXUS_GAME_CATEGORY_ORDER_GUILD_IDS
+    ? csv(process.env.NEXUS_GAME_CATEGORY_ORDER_GUILD_IDS)
+    : [];
+  config.discord.foldStartHere = /^(1|true|yes|on)$/i.test(String(process.env.NEXUS_FOLD_START_HERE || '').trim());
+  config.discord.foldStartHereGuildIds = process.env.NEXUS_FOLD_START_HERE_GUILD_IDS
+    ? csv(process.env.NEXUS_FOLD_START_HERE_GUILD_IDS)
+    : [];
   if (process.env.NEXUS_SENTINAL_ADMIN_URL) config.discord.sentinalAdminUrl = process.env.NEXUS_SENTINAL_ADMIN_URL;
   if (process.env.NEXUS_SENTINAL_ADMIN_TOKEN_ENV) config.discord.sentinalAdminTokenEnv = process.env.NEXUS_SENTINAL_ADMIN_TOKEN_ENV;
   if (process.env.NEXUS_STATUS_CHANNEL_ID) config.discord.nexusStatus.channelId = process.env.NEXUS_STATUS_CHANNEL_ID;
@@ -70,6 +93,13 @@ function loadConfig(options = {}) {
   if (process.env.NEXUS_VEYRA_HEALTH_URL) config.discord.nexusStatus.veyraHealthUrl = process.env.NEXUS_VEYRA_HEALTH_URL;
   if (process.env.NEXUS_VEYRA_GATEWAY_HEALTH_URL) config.discord.nexusStatus.veyraGatewayHealthUrl = process.env.NEXUS_VEYRA_GATEWAY_HEALTH_URL;
   config.modules ||= {};
+  // Default off. Set NEXUS_ARK_MODULE_RETIRED=true when the ARK category is hidden.
+  // Provisioning, repair, and ARK schedule/status feeds stop. The ARK role stays.
+  config.modules.ark ||= {};
+  if (/^(1|true|yes|on)$/i.test(String(process.env.NEXUS_ARK_MODULE_RETIRED || '').trim())) {
+    config.modules.ark.retired = true;
+    config.modules.ark.enabled = false;
+  }
   config.modules.dnd ||= { enabled: true, surface: 'veyra', provider: {} };
   config.modules.dnd.provider ||= {};
   if (process.env.NEXUS_DND_PROVIDER_URL) {

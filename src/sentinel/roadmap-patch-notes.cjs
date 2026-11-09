@@ -1,5 +1,7 @@
 'use strict';
 
+const { foldStartHereEnabled, hiddenFromEveryone } = require('./manual-layout.cjs');
+
 const ALLOWED_MILESTONES = new Set([66, 100]);
 const PUBLIC_DENYLIST = [/\bthora\b/i];
 
@@ -146,7 +148,17 @@ class RoadmapPatchNotePublisher {
 
   async publishPending(guild) {
     const result = { posted: [], adopted: [], skipped: [], warnings: [] };
+    if (foldStartHereEnabled(this.config, guild?.id)) {
+      result.warnings.push('#patch-notes is folded into #start-here; milestone notes stay pending and nothing is posted.');
+      this.logger.log?.('[Nexus Sentinal] roadmap patch notes skipped: folded into #start-here');
+      return result;
+    }
     const channel = await resolvePatchNotesChannel(guild, this.config.discord?.patchNotesChannelId || '');
+    if (channel && hiddenFromEveryone(channel, guild?.id)) {
+      result.warnings.push('#patch-notes is hidden; milestone notes stay pending and nothing is posted.');
+      this.logger.log?.('[Nexus Sentinal] roadmap patch notes skipped: channel hidden');
+      return result;
+    }
     if (!channel) {
       result.warnings.push('No #patch-notes channel was found; milestone notes remain pending.');
       this.logger.warn?.('[Nexus Sentinal] roadmap patch notes: no #patch-notes channel found; pending notes were not marked posted.');
