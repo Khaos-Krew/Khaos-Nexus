@@ -51,11 +51,15 @@ function fakeMessage(id, createdTimestamp, authorId = 'sentinal') {
 
 test('Nexus Status discovery recognizes the INFORMATION category and nexus-status channel', () => {
   assert.equal(normalizeChannelName('ℹ️ INFORMATION'), 'information');
+  assert.equal(normalizeChannelName('📌 START HERE'), 'starthere');
   const info = category('cat-info', 'ℹ️ INFORMATION');
   const status = textChannel('status', 'nexus-status', info.id);
   const channels = new Map([[info.id, info], [status.id, status]]);
   assert.equal(findInformationCategory(channels)?.id, info.id);
   assert.equal(findNexusStatusChannel(channels, info.id)?.id, status.id);
+  const renamed = new Map([['start', category('start', '📌 START HERE')]]);
+  assert.equal(findInformationCategory(renamed)?.id, 'start');
+  assert.equal(findInformationCategory(new Map([['plain', category('plain', 'Start Here')]]))?.id, 'plain');
 });
 
 test('missing Nexus Status channel is created under INFORMATION', async () => {

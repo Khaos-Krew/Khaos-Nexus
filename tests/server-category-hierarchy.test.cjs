@@ -48,6 +48,18 @@ test('server hierarchy is Information, Nexus HQ, Supporter Hub, games A-Z, Staff
   ]);
 });
 
+test('Start Here is the INFORMATION category under either display name', () => {
+  const channels = new Map([
+    ['900000000000000090', category('900000000000000090', '📌 START HERE', 4)],
+    ['900000000000000091', category('900000000000000091', 'Minecraft ⛏️', 0)],
+    ['900000000000000092', category('900000000000000092', '🔒 STAFF', 2)]
+  ]);
+  const plan = serverCategoryOrderPlan(channels);
+  assert.equal(plan.structural.information.id, '900000000000000090');
+  assert.equal(plan.entries[0].label, 'INFORMATION');
+  assert.equal(plan.entries[0].category.id, '900000000000000090');
+});
+
 test('delegated Nexus D&D remains part of the alphabetized game category block', () => {
   const channels = new Map([
     ['900000000000000011', category('900000000000000011', 'Nexus D&D 🎲', 1)],
@@ -216,4 +228,59 @@ test('drifted server category hierarchy uses one batch position request instead 
   assert.equal(batches.length, 1);
   assert.equal(result.moved, result.hierarchy.length);
   assert.deepEqual(batches[0], categoryPositionUpdates(serverCategoryOrderPlan(channels)));
+});
+
+test('manual layout keeps Minecraft first instead of enforcing alphabetical game order', async () => {
+  const channels = new Map([
+    ['900000000000000080', category('900000000000000080', '📌 START HERE', 1)],
+    ['900000000000000081', category('900000000000000081', 'Minecraft ⛏️', 0)],
+    ['900000000000000083', category('900000000000000083', 'OSRS ⚔️', 3)],
+    ['900000000000000084', category('900000000000000084', 'STAFF', 4)]
+  ]);
+  let positionCalls = 0;
+  const guild = {
+    id: '1016059608789434408',
+    ownerId: '900000000000000086',
+    channels: {
+      cache: channels,
+      async fetch() { throw new Error('preserved order should not fetch'); },
+      async setPositions() { positionCalls += 1; }
+    },
+    roles: { cache: new Map() }
+  };
+  const preserved = await reconcileServerCategoryOrder(guild, {
+    channelsSnapshot: channels,
+    rolesSnapshot: new Map(),
+    config: {
+      discord: {
+        respectManualLayout: true,
+        respectManualLayoutGuildIds: ['1016059608789434408']
+      }
+    }
+  });
+  assert.equal(preserved.orderPreserved, true);
+  assert.equal(preserved.moved, 0);
+  assert.equal(positionCalls, 0);
+
+  const unknown = {
+    ...guild,
+    id: '900000000000000099',
+    channels: {
+      cache: channels,
+      async fetch() { throw new Error('unknown guild still uses the snapshot'); },
+      async setPositions() { positionCalls += 1; }
+    }
+  };
+  const enforced = await reconcileServerCategoryOrder(unknown, {
+    channelsSnapshot: channels,
+    rolesSnapshot: new Map(),
+    config: {
+      discord: {
+        respectManualLayout: true,
+        respectManualLayoutGuildIds: ['1016059608789434408']
+      }
+    }
+  });
+  assert.equal(enforced.orderPreserved, false);
+  assert.equal(positionCalls, 1);
 });

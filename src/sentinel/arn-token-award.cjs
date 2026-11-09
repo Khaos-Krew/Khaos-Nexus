@@ -129,6 +129,9 @@ function splitJournal(observations, ledger, maxBytes) {
 }
 
 function writeJournal(file, state, { maxBytes = JOURNAL_MAX_BYTES, now = Date.now() } = {}) {
+  // Retain against the logical event time. Wall-clock Date.now() drops a journal
+  // whose events are older than JOURNAL_RETAIN_MS even when those events are
+  // inside the 30-day window of the clock the caller is replaying.
   const cutoff = Number(now) - JOURNAL_RETAIN_MS;
   state.observations = state.observations.filter((row) => freshEnough(row, cutoff));
   state.ledger = state.ledger.filter((row) => freshEnough(row, cutoff));
@@ -467,9 +470,10 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
     return run;
   }
 
-  function persist() {
+  function persist(now = Date.now()) {
     if (!persistPath || !canPersist) return;
-    writeJournal(persistPath, state, { maxBytes: journalMaxBytes });
+    const at = Number(now);
+    writeJournal(persistPath, state, { maxBytes: journalMaxBytes, now: Number.isFinite(at) ? at : Date.now() });
   }
 
   return {
@@ -490,7 +494,7 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
           env: input.env || env
         });
         applyDecision(state, decision);
-        persist();
+        persist(at);
         return { ...decision, wroteLedger: decision.wroteLedger === true, ledgerRows: state.ledger.length };
       });
     },
@@ -523,7 +527,7 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
             weights: (rotation.entries || []).map((entry) => ({ name: entry.name, rarity: entry.rarity, weight: entry.weight }))
           } : null
         });
-        persist();
+        persist(at);
         return { ok: true, debited: true, economicIdentityId: ids[0], key: spendKey, balance: after };
       });
     },
@@ -539,7 +543,7 @@ function createArnBook({ loadAccounts = async () => [], env = {}, persistPath = 
           at: Number(now),
           currency: CURRENCY
         });
-        persist();
+        persist(Number(now));
         return { ok: true };
       });
     },

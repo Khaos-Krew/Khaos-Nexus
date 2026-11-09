@@ -108,7 +108,7 @@ function buildGuideComponents(guide, selectedId = '') {
   return [new ActionRowBuilder().addComponents(menu)];
 }
 
-function findCategory(guild, names = ['information', 'info']) {
+function findCategory(guild, names = ['information', 'info', 'start here']) {
   const wanted = new Set(names.map(normalizeName));
   return guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory && wanted.has(normalizeName(channel.name))) || null;
 }

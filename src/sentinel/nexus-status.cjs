@@ -24,7 +24,7 @@ function isInformationCategory(channel) {
   if (!channel) return false;
   if (channel.type !== undefined && channel.type !== ChannelType.GuildCategory) return false;
   const name = normalizeChannelName(channel.name);
-  return name === 'information' || name === 'info' || name.endsWith('information');
+  return name === 'information' || name === 'info' || name === 'starthere' || name.endsWith('information');
 }
 
 function isNexusStatusChannel(channel) {

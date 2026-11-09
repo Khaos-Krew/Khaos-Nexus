@@ -45,6 +45,16 @@ test('healthy stored module layout is not provisioned again', () => {
   assert.equal(setupHealthy({ categoryId: 'cat', consoleChannelId: 'missing' }, channels, 'warframe'), false);
 });
 
+test('a console moved into STAFF stays healthy so repair does not pull it back', () => {
+  const channels = new Map([
+    ['cat', { id: 'cat', name: 'Warframe', type: ChannelType.GuildCategory }],
+    ['staff', { id: 'staff', name: '🔒 STAFF', type: ChannelType.GuildCategory }],
+    ['hub', { id: 'hub', name: 'warframe-hub', type: ChannelType.GuildText, parentId: 'staff' }]
+  ]);
+  assert.equal(setupHealthy({ categoryId: 'cat', consoleChannelId: 'hub' }, channels, 'warframe'), true);
+  assert.equal(setupHealthy({ categoryId: 'cat', consoleChannelId: 'hub' }, channels, 'ark'), false);
+});
+
 test('a stored RS3 setup under OSRS is unhealthy and must be repaired', () => {
   const channels = new Map([
     ['cat', { id: 'cat', name: 'Old School RuneScape', type: ChannelType.GuildCategory }],

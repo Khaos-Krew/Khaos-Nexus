@@ -9,6 +9,7 @@ const {
   inspectChannelViewPolicy,
   reconcileChannelViewPolicy,
   reconcileExistingModuleAccessPolicies,
+  reconcileModuleAccessPolicy,
   resolveModuleAccessPolicyRoles
 } = require('../src/sentinel/module-access-policy.cjs');
 
@@ -123,6 +124,36 @@ test('existing module category and children are locked without touching unrelate
   }
   assert.equal(unrelated.edits.length, 0);
   assert.equal(explicitViewState(unrelated, 'shadow'), true);
+});
+
+test('game-role view is not re-granted on channels located in STAFF', async () => {
+  const staff = fakeChannel({
+    id: 'staff-category',
+    name: '🔒 STAFF',
+    type: ChannelType.GuildCategory,
+    views: { guild: false }
+  });
+  const consoleChannel = fakeChannel({
+    id: 'minecraft-console',
+    name: 'minecraft-console',
+    parentId: 'staff-category',
+    views: { guild: false, 'minecraft-access': false }
+  });
+  const channels = new Map([[staff.id, staff], [consoleChannel.id, consoleChannel]]);
+  const roles = new Map([['minecraft-access', { id: 'minecraft-access', name: 'Minecraft Access' }]]);
+  const state = stateFor({ access: { minecraft: { roleId: 'minecraft-access', roleName: 'Minecraft Access' } } });
+  const guild = {
+    id: 'guild',
+    roles: { fetch: async () => roles },
+    channels: { fetch: async () => channels }
+  };
+  const result = await reconcileModuleAccessPolicy(guild, 'minecraft', staff, { state, channelsSnapshot: channels });
+  assert.equal(result.skipped, true);
+  assert.equal(result.reason, 'staff-category');
+  assert.equal(result.changed, 0);
+  assert.equal(staff.edits.length, 0);
+  assert.equal(consoleChannel.edits.length, 0);
+  assert.equal(explicitViewState(consoleChannel, 'minecraft-access'), false);
 });
 
 test('canonical supporter role names are neutralized even before rank IDs are configured', async () => {

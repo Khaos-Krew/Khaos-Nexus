@@ -59,7 +59,7 @@ Set these on `nexus-vanguard` only. Never put the bot token in the Dockerfile, a
 | `VANGUARD_FIRETEAM_FINDER_CHANNEL_ID` | no | Durable fireteam board. Falls back to the lfg channel. |
 | `VANGUARD_PANELS_CHANNEL_ID` | no | Created by setup for a later slice. Unused by Bungie panels in Slice A. |
 | `VANGUARD_JTC_LOBBY_CHANNEL_ID` | no | Join-To-Create lobby voice. Unset leaves JTC off. No baked default. |
-| `VANGUARD_JTC_CATEGORY_ID` | no | Ignored unless it equals `VANGUARD_DISCORD_CATEGORY_ID`. An unset or invalid gate leaves Join-To-Create off. A different value does not create channels outside the gate. |
+| `VANGUARD_JTC_CATEGORY_ID` | no | Ignored unless it equals `VANGUARD_DISCORD_CATEGORY_ID`. An unset or invalid gate leaves Join-To-Create off. A different value does not redirect rooms. Rooms are created in the trigger channel's current parent. |
 | `VANGUARD_JTC_EMPTY_GRACE_MS` | no | Shared empty-channel grace, clamped 5–120 seconds. Default 15 seconds. |
 | `VANGUARD_LFG_DEFAULT_TTL_MIN` | no | Default 120. Clamped 15–720. |
 | `VANGUARD_LFG_MAX_OPEN_PER_USER` | no | Default 2. Clamped 1–10. |

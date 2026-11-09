@@ -166,7 +166,7 @@ test('gate unset + override set → JTC off', async () => {
   }
 });
 
-test('override != gate → no channels created outside the gate', async () => {
+test('rooms follow the trigger parent and a mismatched category override does not redirect them', async () => {
   const matched = resolveJtcConfig('vanguard', {
     VANGUARD_DISCORD_CATEGORY_ID: CATEGORY,
     VANGUARD_JTC_CATEGORY_ID: CATEGORY,
@@ -194,14 +194,13 @@ test('override != gate → no channels created outside the gate', async () => {
     assert.equal(jtc.config.configured, true);
     assert.equal(jtc.config.categoryId, CATEGORY);
     const outside = await jtc.handleVoiceState({}, joinState(guild, person, LOBBY, OVERRIDE));
-    assert.equal(outside.action, 'ignored');
-    assert.equal(outside.reason, 'category');
-    assert.equal(created.length, 0);
-    const inside = await jtc.handleVoiceState({}, joinState(guild, person, LOBBY, CATEGORY));
+    assert.equal(outside.action, 'created');
+    assert.equal(created[0].parentId, OVERRIDE);
+    const insider = member(guild, '43', 'Kai');
+    const inside = await jtc.handleVoiceState({}, joinState(guild, insider, LOBBY, CATEGORY));
     assert.equal(inside.action, 'created');
-    assert.equal(created.length, 1);
-    assert.equal(created[0].parentId, CATEGORY);
-    for (const channel of created) assert.notEqual(channel.parentId, OVERRIDE);
+    assert.equal(created[1].parentId, CATEGORY);
+    assert.notEqual(created[1].parentId, OVERRIDE);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -235,11 +234,12 @@ test('a setup-created lobby turns join-to-create on through one install inside t
     const guild = voiceGuild(created);
     const person = member(guild);
     const outside = await ctx.jtc.handleVoiceState({}, joinState(guild, person, LOBBY, OVERRIDE));
-    assert.equal(outside.reason, 'category');
-    assert.equal(created.length, 0);
-    const inside = await ctx.jtc.handleVoiceState({}, joinState(guild, person, LOBBY, CATEGORY));
+    assert.equal(outside.action, 'created');
+    assert.equal(created[0].parentId, OVERRIDE);
+    const insider = member(guild, '43', 'Kai');
+    const inside = await ctx.jtc.handleVoiceState({}, joinState(guild, insider, LOBBY, CATEGORY));
     assert.equal(inside.action, 'created');
-    assert.equal(created[0].parentId, CATEGORY);
+    assert.equal(created[1].parentId, CATEGORY);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -225,8 +225,13 @@ test('join-to-create creates, reuses, gates, and deletes empty channels without 
     assert.equal(fresh.length, 0);
     reloaded.stop();
 
-    const otherCategory = await jtc.handleVoiceState({ guild, channelId: null }, joinState(guild, person, LOBBY, '1516602943670059108'));
-    assert.equal(otherCategory.reason, 'category');
+    const voiceParent = '1516602943670059108';
+    const ada = member(guild, '43', 'Ada');
+    const inVoice = await jtc.handleVoiceState({ guild, channelId: null }, joinState(guild, ada, LOBBY, voiceParent));
+    assert.equal(inVoice.action, 'created');
+    assert.equal(created.at(-1).parentId, voiceParent);
+    jtc.store.remove(created.at(-1).id);
+    created.pop();
     const otherGuild = { ...guild, id: '1000000000000000009' };
     const foreign = await jtc.handleVoiceState({ guild: otherGuild, channelId: null }, joinState(otherGuild, member(otherGuild)));
     assert.equal(foreign.reason, 'guild');

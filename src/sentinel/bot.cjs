@@ -17,6 +17,7 @@ const { SentinalAdminOps } = require('./admin-ops.cjs');
 const { createSentinalAdminServer } = require('./admin-server.cjs');
 const { ensureAnomalyChannel } = require('./ark-shiny-anomaly.cjs');
 const { isModuleChannelsNotProvisionedError, isNoProvisionChannelModule } = require('./no-provision-modules.cjs');
+const { shouldPostLayoutMessage } = require('./manual-layout.cjs');
 const { configuredDiscordRole } = require('./discord-command-role.cjs');
 
 const config = loadConfig();
@@ -28,7 +29,7 @@ if (!guildId) throw new Error('Set discord.guildId in config.json or NEXUS_DISCO
 const backend = new BackendClient(config);
 const state = new StateStore();
 const pending = new Map();
-const provisioner = new ModuleProvisioner({ state, maxLobbiesPerModule: config.discord?.maxTemporaryLobbiesPerModule || 20 });
+const provisioner = new ModuleProvisioner({ state, config, maxLobbiesPerModule: config.discord?.maxTemporaryLobbiesPerModule || 20 });
 const clientIntents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates];
 if (String(process.env.NEXUS_ARK_CROSSCHAT_ENABLED || 'false').toLowerCase() === 'true') {
   clientIntents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
@@ -147,6 +148,13 @@ async function ensureConsole(moduleId) {
   if (!module || module.console === false || moduleConfig.enabled === false || !channelId) return null;
   const channel = await client.channels.fetch(String(channelId));
   if (!channel?.isTextBased?.()) throw new Error(`${module.name}: configured channel is not text-capable.`);
+  const parent = channel.parent || (channel.parentId ? await client.channels.fetch(String(channel.parentId)).catch(() => null) : null);
+  const knownChannels = new Map();
+  if (parent?.id) knownChannels.set(String(parent.id), parent);
+  if (!shouldPostLayoutMessage(channel, { categoryId: setup?.categoryId || '', channels: knownChannels, guildId })) {
+    console.log(`[Nexus Sentinal] ${moduleId} console left unchanged; channel is outside its game category or in STAFF`);
+    return null;
+  }
   const payload = renderModuleConsole(moduleId, await manifestState(moduleId));
   const saved = state.getConsole(moduleId);
   await retireOldConsole(saved, channel.id);

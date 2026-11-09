@@ -14,6 +14,7 @@ const { ensurePanelMessage } = require('./persistent-panel-extension.cjs');
 const { createCoalescingRunner } = require('./coalescing-runner.cjs');
 const { activeSentinelModules } = require('./retired-module-policy.cjs');
 const { isNoProvisionChannelModule } = require('./no-provision-modules.cjs');
+const { shouldPostLayoutMessage } = require('./manual-layout.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.moduleAutoprovision.extension');
 const INITIAL_PROVISION_DELAY_MS = 160_000;
@@ -39,12 +40,12 @@ function setupHealthy(setup, channels, moduleId = '') {
   if (!setup?.categoryId || !setup?.consoleChannelId) return false;
   const category = channels?.get?.(String(setup.categoryId));
   const consoleChannel = channels?.get?.(String(setup.consoleChannelId));
-  return Boolean(
-    category?.type === ChannelType.GuildCategory
-    && (!moduleId || categoryMatchesModule(moduleId, category))
-    && consoleChannel?.type === ChannelType.GuildText
-    && String(consoleChannel.parentId || '') === String(category.id)
-  );
+  if (category?.type !== ChannelType.GuildCategory) return false;
+  if (moduleId && !categoryMatchesModule(moduleId, category)) return false;
+  if (consoleChannel?.type !== ChannelType.GuildText) return false;
+  // A console that still has a parent was placed on purpose. A parent other than
+  // the game category (STAFF, for example) must not be treated as missing.
+  return Boolean(consoleChannel.parentId);
 }
 
 function modulesNeedingProvision(config = {}, state, channels, roles) {
@@ -100,6 +101,10 @@ async function moduleState(backend, moduleId) {
 async function publishModuleHub(client, backend, state, setup, moduleId, logger = console) {
   const channel = await client.channels.fetch(String(setup.consoleChannelId || '')).catch(() => null);
   if (!channel?.isTextBased?.()) return { published: false, reason: 'console-channel-unavailable' };
+  const knownChannels = channel.guild?.channels?.cache || null;
+  if (!shouldPostLayoutMessage(channel, { categoryId: setup?.categoryId || '', channels: knownChannels, guildId: channel.guild?.id || setup?.guildId || '' })) {
+    return { published: false, reason: 'layout-post-suppressed' };
+  }
   const payload = renderModuleConsole(moduleId, await moduleState(backend, moduleId));
   const result = await ensurePanelMessage(channel, moduleId, payload, { botId: client.user?.id, logger });
   if (!result.message) return { published: false, reason: 'hub-message-unavailable' };
