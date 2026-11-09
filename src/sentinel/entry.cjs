@@ -140,8 +140,9 @@ require('./ark-dynamic-config-http.cjs');
 require('./ark-identity-webhook-http.cjs');
 require('./protocol/discord.cjs').installProtocolExtension();
 
-// Last discord.Client swap, then the ARN login hooks, then bot.cjs (which
-// destructures Client at load). A Docker -r preload must not install these.
+// ARN's Client swap, then the ARN login hooks. Temporary voice below is the
+// last Client swap. bot.cjs destructures Client at load. A Docker -r preload
+// must not install these.
 require('./arn-live-board-extension.cjs').ensureArnGuildMessages();
 installArnIntakeExtension();
 require('./arn-live-board-extension.cjs').installArnLiveBoardExtension();
@@ -149,5 +150,9 @@ require('./arn-cache-extension.cjs').installArnCacheExtension();
 
 // Craft's Discord commands. Off unless SENTINAL_CRAFT_MODULE=true.
 require('./craft-module-extension.cjs').installCraftModuleExtension();
+
+// Last discord.Client swap. Guild Presences is added only when temporary voice
+// presence is explicitly enabled. bot.cjs destructures Client at load.
+require('./temp-voice-extension.cjs').installTempVoiceExtension();
 
 require('./bot.cjs');

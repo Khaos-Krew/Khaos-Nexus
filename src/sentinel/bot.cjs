@@ -30,6 +30,10 @@ const backend = new BackendClient(config);
 const state = new StateStore();
 const pending = new Map();
 const provisioner = new ModuleProvisioner({ state, config, maxLobbiesPerModule: config.discord?.maxTemporaryLobbiesPerModule || 20 });
+// Guild Presences is not requested here. temp-voice-extension.cjs adds
+// GatewayIntentBits.GuildPresences only when SENTINAL_TEMP_VOICE=true and
+// SENTINAL_TEMP_VOICE_PRESENCE=true. Without that flag, room names fall back
+// to "<name>'s Chat".
 const clientIntents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates];
 if (String(process.env.NEXUS_ARK_CROSSCHAT_ENABLED || 'false').toLowerCase() === 'true') {
   clientIntents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);

@@ -20,6 +20,8 @@ Nothing here deletes a channel, posts an announcement, or edits a game role. Hid
 
 `#minecraft-console`, `#minecraft-backups`, `#ark-console`, `#palworld-console`, and `#palworld-backups` are left in STAFF. Repair does not move a layout channel that already has a parent.
 
+Temporary voice is a separate switch, `SENTINAL_TEMP_VOICE`, and it defaults off. When it is on, the open lobby `➕ Create a Voice Chat` and the rooms Sentinal opens from it live in the player Voice category. Repair, access reconciliation, and Nexus HQ locking do not delete those channels, rename them, move them, or re-lock their permissions. Nexus Lounge, AFK, event-night, staff voice, and the existing `➕ Join to Create …` game lobbies are not temporary rooms. Sentinal does not delete those game lobbies. See `docs/ops/SENTINAL_TEMP_VOICE.md`.
+
 ## Dry run before any delete
 
 ```bash

@@ -5,6 +5,7 @@ const { NEXUS_RANKS } = require('../shared/ranks.cjs');
 const { MODULES, getModule } = require('../backend/modules/catalog.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
 const { isStaffCategoryChannel, isStaffLocated } = require('./manual-layout.cjs');
+const { isSentinalTempVoiceChannel } = require('./temp-voice.cjs');
 const { arkModuleRetired } = require('./no-provision-modules.cjs');
 
 const HAND_HIDDEN_CHANNEL_KEYS = new Set(['cobblemon', 'about', 'patchnotes']);
@@ -186,14 +187,16 @@ async function reconcileModuleAccessPolicy(guild, moduleId, category, options = 
   let changed = 0;
   const results = [];
   for (const channel of channels) {
-    if (isStaffCategoryChannel(channel) || isStaffLocated(channel, channelIndex) || isHandHiddenChannel(channel)) {
+    if (isStaffCategoryChannel(channel) || isStaffLocated(channel, channelIndex) || isHandHiddenChannel(channel) || isSentinalTempVoiceChannel(channel)) {
       results.push({
         channelId: String(channel.id),
         channelName: String(channel.name || ''),
         ok: true,
         changed: 0,
         skipped: true,
-        reason: isHandHiddenChannel(channel) ? 'hidden-by-hand' : 'staff-category'
+        reason: isSentinalTempVoiceChannel(channel)
+          ? 'temp-voice'
+          : isHandHiddenChannel(channel) ? 'hidden-by-hand' : 'staff-category'
       });
       continue;
     }
@@ -217,7 +220,19 @@ async function inspectModuleAccessPolicy(guild, moduleId, category, options = {}
   const context = await modulePolicyContext(guild, moduleId, category, options);
   if (!context.ok) return context;
   const channels = await managedCategoryChannels(guild, category);
-  const results = channels.map((channel) => inspectChannelViewPolicy(channel, context.policy));
+  const results = channels.map((channel) => {
+    if (isSentinalTempVoiceChannel(channel)) {
+      return {
+        ok: true,
+        channelId: String(channel?.id || ''),
+        channelName: String(channel?.name || ''),
+        drift: [],
+        skipped: true,
+        reason: 'temp-voice'
+      };
+    }
+    return inspectChannelViewPolicy(channel, context.policy);
+  });
   return {
     ok: results.every((item) => item.ok),
     skipped: false,

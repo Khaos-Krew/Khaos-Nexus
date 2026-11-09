@@ -33,7 +33,7 @@ const required = [
   'scripts/legacy-bank-flat.cjs',
   'src/game-bots/discord-env.cjs', 'src/game-bots/health.cjs', 'src/game-bots/start.cjs',
   'src/sentinel/game-command-ownership.cjs', 'src/sentinel/ascended-runtime.cjs', 'src/sentinel/cephalon-bot.cjs', 'src/sentinel/sanctuary-suite.cjs', 'src/sentinel/sanctuary-events.cjs', 'src/sentinel/sanctuary-bot.cjs',
-  'src/sentinel/bot.cjs', 'src/sentinel/entry.cjs', 'src/sentinel/pokemon-go-extension.cjs',
+  'src/sentinel/bot.cjs', 'src/sentinel/entry.cjs', 'src/sentinel/temp-voice.cjs', 'src/sentinel/temp-voice-extension.cjs', 'src/sentinel/pokemon-go-extension.cjs',
   'src/sentinel/pokemon-go.cjs', 'src/sentinel/pokemon-go-event-ui.cjs', 'src/sentinel/discord-time.cjs',
   'src/sentinel/event-feed.cjs', 'src/sentinel/event-feed-extension.cjs', 'src/sentinel/role-menu.cjs', 'src/sentinel/role-menu-extension.cjs',
   'src/sentinel/admin-pairing.cjs', 'src/sentinel/admin-pairing-extension.cjs', 'src/sentinel/moderation-commands.cjs', 'src/sentinel/moderation-extension.cjs',
