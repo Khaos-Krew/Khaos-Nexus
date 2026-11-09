@@ -259,6 +259,7 @@ function adminCommandInventory() {
     { scope: 'Nexus', command: '/nexus setup', access: 'Owner / Manage Server', description: 'Open guided module setup.' },
     { scope: 'Nexus', command: '/nexus repair module:<game>', access: 'Owner / Manage Server', description: 'Repair one module Discord layout.' },
     { scope: 'Nexus', command: '/nexus repair-all', access: 'Owner / Manage Server', description: 'Repair all registered module layouts.' },
+    { scope: 'Nexus', command: '/nexus collapse-dry-run', access: 'Owner / Manage Server', description: 'List game subchannels the slim layout would remove. Does not delete anything.' },
     { scope: 'Community XP', command: '/xp', access: 'Owner / Manage Server', description: 'Add/remove/set/reset XP, change multiplier/source state, exclusions, or inspect leveling status.' }
   ];
 

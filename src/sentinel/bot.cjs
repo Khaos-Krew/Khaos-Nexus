@@ -18,6 +18,7 @@ const { createSentinalAdminServer } = require('./admin-server.cjs');
 const { ensureAnomalyChannel } = require('./ark-shiny-anomaly.cjs');
 const { isModuleChannelsNotProvisionedError, isNoProvisionChannelModule } = require('./no-provision-modules.cjs');
 const { shouldPostLayoutMessage } = require('./manual-layout.cjs');
+const { collapseDryRun, formatCollapseDryRun } = require('./layout-profile.cjs');
 const { configuredDiscordRole } = require('./discord-command-role.cjs');
 
 const config = loadConfig();
@@ -262,6 +263,9 @@ function nexusCommand() {
     .addSubcommand((sub) => sub
       .setName('repair-all')
       .setDescription('Compatibility command: create or repair every registered module, including disabled ones'))
+    .addSubcommand((sub) => sub
+      .setName('collapse-dry-run')
+      .setDescription('List slim-layout channels that could be removed. Deletes nothing.'))
     .addSubcommand((sub) => sub.setName('modules').setDescription('Show Nexus module Discord/backend status'))
     .addSubcommand((sub) => sub
       .setName('features')
@@ -457,6 +461,12 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.editReply(await repairModules(interaction, moduleId));
     }
     if (sub === 'repair-all') return interaction.editReply(await repairAllModules(interaction));
+    if (sub === 'collapse-dry-run') {
+      if (!(await canSetup(interaction))) return interaction.editReply({ content: 'Collapse review requires Nexus owner access or Discord Manage Server permission.' });
+      const channels = await interaction.guild.channels.fetch();
+      const report = collapseDryRun(channels, config);
+      return interaction.editReply({ content: formatCollapseDryRun(report, { onlyPresent: true }) });
+    }
     if (sub === 'modules') {
       const result = await backend.modules();
       const discovered = new Set(await provisioner.discoverModuleIds(interaction.guild));

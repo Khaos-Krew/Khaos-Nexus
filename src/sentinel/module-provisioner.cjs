@@ -6,7 +6,8 @@ const { GAME_BOT_JTC_MODULES } = require('../game-bots/join-to-create.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
 const { reconcileModuleAccessPolicy } = require('./module-access-policy.cjs');
 const { assertModuleChannelsProvisionable } = require('./no-provision-modules.cjs');
-const { hiddenFromEveryone, isProtectedLayoutCategory, respectsManualLayout } = require('./manual-layout.cjs');
+const { hiddenFromEveryone, isProtectedLayoutCategory, isStaffCategoryName, respectsManualLayout } = require('./manual-layout.cjs');
+const { managedTextChannels, playerVoiceCategoryId } = require('./layout-profile.cjs');
 
 const GAME_BOT_JTC = new Set(GAME_BOT_JTC_MODULES);
 
@@ -84,6 +85,33 @@ async function triggerParentId(guild, triggerChannel, fallbackCategoryId = '') {
     parentId = String(fetched?.parentId || '');
   }
   return parentId || String(fallbackCategoryId || '');
+}
+
+// Temporary rooms follow the builder voice channel's own parent. The game
+// category is only a last resort when the builder has no parent and no player
+// Voice category is configured.
+async function resolveLobbyParentId(guild, setup, triggerChannel = null, config = {}) {
+  const fromTrigger = await triggerParentId(guild, triggerChannel, '');
+  if (fromTrigger) return fromTrigger;
+  const builderId = String(setup?.lobbyBuilderChannelId || '');
+  if (builderId && typeof guild?.channels?.fetch === 'function') {
+    const builder = await guild.channels.fetch(builderId).catch(() => null);
+    const parentId = String(builder?.parentId || '');
+    if (parentId) return parentId;
+  }
+  const voiceId = playerVoiceCategoryId(config);
+  if (voiceId) return voiceId;
+  return String(setup?.categoryId || '');
+}
+
+async function playerVoiceCategory(guild, config = {}) {
+  const voiceId = playerVoiceCategoryId(config);
+  if (!voiceId || typeof guild?.channels?.fetch !== 'function') return null;
+  const channels = await guild.channels.fetch();
+  const category = typeof channels?.get === 'function' ? channels.get(voiceId) : null;
+  if (!category || category.type !== ChannelType.GuildCategory) return null;
+  if (isStaffCategoryName(category.name)) return null;
+  return category;
 }
 
 // Channels that already live somewhere else stay there. A channel hidden from
@@ -204,9 +232,7 @@ class ModuleProvisioner {
     const createdChannels = [];
     const movedChannels = [];
     const preserveManualLayout = respectsManualLayout(this.config, guild.id);
-    const textNames = preserveManualLayout
-      ? layout.text.filter((name) => name === layout.consoleChannel)
-      : layout.text;
+    const textNames = managedTextChannels(moduleId, this.config, { respectManual: preserveManualLayout, layout });
 
     for (const name of textNames) {
       const result = await this.textChannel(guild, category, name);
@@ -221,7 +247,13 @@ class ModuleProvisioner {
       if (result.moved) movedChannels.push(name);
     }
 
-    const builderResult = await this.lobbyBuilder(guild, category, layout.lobbyBuilder, { createMissing: !preserveManualLayout });
+    const voiceCategory = await playerVoiceCategory(guild, this.config);
+    const voiceConfigured = Boolean(playerVoiceCategoryId(this.config));
+    const builderCategory = voiceCategory || category;
+    // A configured Voice category that cannot be resolved must not recreate the
+    // builder under the game category. An existing builder is reused in place.
+    const createBuilder = voiceCategory ? true : (voiceConfigured ? false : !preserveManualLayout);
+    const builderResult = await this.lobbyBuilder(guild, builderCategory, layout.lobbyBuilder, { createMissing: createBuilder });
     const builder = builderResult.channel;
     if (builder && builderResult.created) createdChannels.push(layout.lobbyBuilder);
     if (builder && builderResult.moved) movedChannels.push(layout.lobbyBuilder);
@@ -273,7 +305,7 @@ class ModuleProvisioner {
 
   async createOrReuseLobby(member, setup, triggerChannel = null) {
     if (GAME_BOT_JTC.has(setup?.moduleId)) return null;
-    const parentId = await triggerParentId(member?.guild, triggerChannel, setup?.categoryId);
+    const parentId = await resolveLobbyParentId(member?.guild, setup, triggerChannel, this.config);
     const existingState = this.state.findTempLobbyByOwner(setup.moduleId, String(member.id));
     if (existingState) {
       try {
@@ -358,5 +390,7 @@ module.exports = {
   similarityScore,
   uniqueNamedChannel,
   resolveManagedChannel,
-  triggerParentId
+  resolveLobbyParentId,
+  triggerParentId,
+  playerVoiceCategory
 };
