@@ -82,6 +82,16 @@ async function handleMcPointsCommand(interaction, context) {
       return true;
     }
   }
+  // Sentinal passes these so /mc shop and /mc starter open the shop that already
+  // lives here. Craft leaves them unset and keeps the pointer replies below.
+  if (sub === 'shop' && typeof context.openShop === 'function') {
+    await context.openShop(interaction);
+    return true;
+  }
+  if (sub === 'starter' && typeof context.openStarter === 'function') {
+    await context.openStarter(interaction);
+    return true;
+  }
   if (!points && sub !== 'shop') {
     await interaction.reply(context.ephemeral(reasonText('economy-worker-unconfigured')));
     return true;

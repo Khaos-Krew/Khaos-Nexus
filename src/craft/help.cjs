@@ -1,7 +1,11 @@
 'use strict';
 
-function craftHelpText() {
-  return [
+function onSentinal(env) {
+  return ['1', 'true', 'yes', 'on'].includes(String(env?.SENTINAL_CRAFT_MODULE || '').trim().toLowerCase());
+}
+
+function craftHelpText(env = {}) {
+  const lines = [
     '**Nexus Craft help**',
     '',
     '**What needs setup**',
@@ -27,7 +31,17 @@ function craftHelpText() {
     '• Bedrock dedicated server: status ping only. No RCON.',
     '• Bedrock players can join a Java server through Geyser. That Java server still has full RCON.',
     '• Minecraft Realms: listing board only. Mojang provides no RCON and no official Realms API. The owner still adds them inside Minecraft.'
-  ].join('\n').slice(0, 1900);
+  ];
+  if (!onSentinal(env)) return lines.join('\n').slice(0, 1900);
+  const trimmed = lines.filter((line) => !line.startsWith('• Discord token') && !line.startsWith('• Bedrock players can join'));
+  trimmed.push(
+    '',
+    '**On Sentinal**',
+    '• `/minecraft` stays the server-tools command.',
+    '• `/mc shop` opens the shop here. `/mc starter` claims the kit here.',
+    '• Staff `/realm repost` republishes open listings onto this bot.'
+  );
+  return trimmed.join('\n').slice(0, 1900);
 }
 
 module.exports = { craftHelpText };

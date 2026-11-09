@@ -35,7 +35,7 @@ src/game-bots/ops-spine.cjs
 src/shared/config.cjs
 ```
 
-Do not add `Dockerfile.craft` or `src/craft/**` to the Cephalon, Ascended, Sanctuary, or Sentinal watch paths.
+Do not add `Dockerfile.craft` or `src/craft/**` to the Cephalon, Ascended, or Sanctuary watch paths. Sentinal's image already copies `src`, including `src/craft`. The Craft commands stay off on Sentinal until `SENTINAL_CRAFT_MODULE=true`. After that cutover, add `src/craft/**` and `src/sentinel/craft-module.cjs` to the Sentinal watch path so a Craft fix redeploys Sentinal. The cutover steps are in `docs/ops/SENTINAL_CRAFT_MODULE.md`.
 
 ## Environment
 
