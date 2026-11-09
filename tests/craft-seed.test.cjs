@@ -52,7 +52,10 @@ test('craft seed writes missing files once and does not log their contents', () 
   const written = JSON.parse(fs.readFileSync(path.join(dir, 'nexus-craft.json'), 'utf8'));
   assert.equal(written.statusPanel.host, 'play.example.test');
   assert.equal(fs.readFileSync(path.join(dir, 'nexus-craft-rcon-secret'), 'utf8').trim(), secret);
-  assert.equal(fs.statSync(path.join(dir, 'nexus-craft-rcon-secret')).mode & 0o777, 0o600);
+  // Windows NTFS does not retain POSIX 0o600 from open('wx', 0o600); Railway runs Linux.
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(path.join(dir, 'nexus-craft-rcon-secret')).mode & 0o777, 0o600);
+  }
   const logged = lines.join('\n');
   assert.match(logged, /craft seed wrote nexus-craft\.json/);
   assert.match(logged, /remove SENTINAL_CRAFT_SEED_JSON/);
