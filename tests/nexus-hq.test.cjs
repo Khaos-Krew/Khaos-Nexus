@@ -75,6 +75,8 @@ test('INFORMATION lookup supports the canonical category used for preserved onbo
   const info = { id: '900000000000000003', name: 'INFORMATION', type: ChannelType.GuildCategory };
   const channels = new Map([[info.id, info]]);
   assert.equal(findInformationCategory(channels)?.id, info.id);
+  const startHere = { id: '900000000000000004', name: '📌 START HERE', type: ChannelType.GuildCategory };
+  assert.equal(findInformationCategory(new Map([[startHere.id, startHere]]))?.id, startHere.id);
 });
 
 test('Shadow Recruit and all discovered Nexus rank roles receive HQ access', () => {

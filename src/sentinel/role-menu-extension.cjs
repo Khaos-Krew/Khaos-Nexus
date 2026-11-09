@@ -99,7 +99,7 @@ function installRoleMenuExtension() {
           console.warn(`[Nexus Sentinal] module channel access warning (${reason}): ${item.moduleId}: ${item.reason || 'permission reconciliation failed'}`);
         }
 
-        const categoryOrder = await reconcileGameCategoryOrder(guild);
+        const categoryOrder = await reconcileGameCategoryOrder(guild, { config, botId: this.user?.id });
         if (categoryOrder.skipped) {
           console.warn(`[Nexus Sentinal] game category ordering skipped (${reason}): ${categoryOrder.reason}`);
         } else {

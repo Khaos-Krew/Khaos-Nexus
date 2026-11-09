@@ -6,7 +6,7 @@ const { applyManagedOverwrites, refusePermissionStaffFallback } = require('./sta
 
 const HQ_CATEGORY_NAME = '🌐 NEXUS HQ';
 const HQ_CATEGORY_ALIASES = Object.freeze(['nexus hq', 'nexus headquarters', 'community hq']);
-const INFORMATION_CATEGORY_ALIASES = Object.freeze(['information', 'info']);
+const INFORMATION_CATEGORY_ALIASES = Object.freeze(['information', 'info', 'start here']);
 
 const HQ_CHANNELS = Object.freeze([
   Object.freeze({

@@ -7,6 +7,7 @@ const { formatActionResult } = require('./action-formatters.cjs');
 const { pokemonGoEventPayload } = require('./pokemon-go-event-ui.cjs');
 const { isRetiredModuleId } = require('./retired-module-policy.cjs');
 const { isNoProvisionChannelModule } = require('./no-provision-modules.cjs');
+const { shouldPostLayoutMessage } = require('./manual-layout.cjs');
 
 const DEFAULT_POLL_MS = 10 * 60 * 1000;
 const FEED_RENDER_VERSION = 3;
@@ -364,6 +365,12 @@ class EventFeedPublisher {
       if (!channelId) return;
       const channel = await this.client.channels.fetch(String(channelId)).catch(() => null);
       if (!channel?.isTextBased?.()) return;
+      const knownChannels = channel.guild?.channels?.cache || null;
+      if (!shouldPostLayoutMessage(channel, {
+        categoryId: setup?.categoryId || '',
+        channels: knownChannels,
+        guildId: channel.guild?.id || setup?.guildId || ''
+      })) return;
       for (const actionId of definition.actions) await this.publishAction(definition, channel, actionId);
     } catch (error) {
       this.logger.error?.(`[Nexus Sentinal Feed] ${definition.moduleId}:`, String(error?.message || error));

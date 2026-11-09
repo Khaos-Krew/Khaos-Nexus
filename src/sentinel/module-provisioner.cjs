@@ -6,6 +6,7 @@ const { GAME_BOT_JTC_MODULES } = require('../game-bots/join-to-create.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
 const { reconcileModuleAccessPolicy } = require('./module-access-policy.cjs');
 const { assertModuleChannelsProvisionable } = require('./no-provision-modules.cjs');
+const { hiddenFromEveryone, isProtectedLayoutCategory, respectsManualLayout } = require('./manual-layout.cjs');
 
 const GAME_BOT_JTC = new Set(GAME_BOT_JTC_MODULES);
 
@@ -60,6 +61,7 @@ function bestCategoryMatch(channels, moduleId) {
   const candidates = categoryCandidates(moduleId);
   let best = null;
   for (const category of categories) {
+    if (isProtectedLayoutCategory(category.name)) continue;
     const score = Math.max(...candidates.map((candidate) => similarityScore(category.name, candidate)));
     if (!best || score > best.score) best = { category, score };
   }
@@ -69,6 +71,65 @@ function bestCategoryMatch(channels, moduleId) {
 function uniqueNamedChannel(channels, type, name) {
   const matches = [...channels.values()].filter((channel) => channel?.type === type && channel?.name === name);
   return matches.length === 1 ? matches[0] : null;
+}
+
+function namedChannels(channels, type, name) {
+  return [...channels.values()].filter((channel) => channel?.type === type && channel?.name === name);
+}
+
+async function triggerParentId(guild, triggerChannel, fallbackCategoryId = '') {
+  let parentId = String(triggerChannel?.parentId || '');
+  if (!parentId && triggerChannel?.id && typeof guild?.channels?.fetch === 'function') {
+    const fetched = await guild.channels.fetch(String(triggerChannel.id)).catch(() => null);
+    parentId = String(fetched?.parentId || '');
+  }
+  return parentId || String(fallbackCategoryId || '');
+}
+
+// Channels that already live somewhere else stay there. A channel hidden from
+// @everyone is never recreated. Only a same-named channel with no parent is
+// still filed into the game category, which is the old repair for an uncategorized
+// channel and does not pull consoles out of STAFF or triggers out of VOICE.
+async function resolveManagedChannel(guild, category, name, type, { createMissing = true, moveReason = 'Nexus Sentinal module category repair' } = {}) {
+  const all = await guild.channels.fetch();
+  const named = namedChannels(all, type, name);
+  const categoryId = String(category?.id || '');
+  const inCategory = named.find((channel) => String(channel?.parentId || '') === categoryId);
+  if (inCategory) return { channel: inCategory, created: false, moved: false, relocated: false, hidden: hiddenFromEveryone(inCategory, guild.id) };
+
+  const elsewhere = named.filter((channel) => String(channel?.parentId || '') && String(channel.parentId) !== categoryId);
+  if (elsewhere.length) {
+    const hidden = elsewhere.find((channel) => hiddenFromEveryone(channel, guild.id)) || null;
+    const chosen = hidden || elsewhere[0];
+    return {
+      channel: chosen,
+      created: false,
+      moved: false,
+      relocated: true,
+      hidden: hiddenFromEveryone(chosen, guild.id)
+    };
+  }
+
+  const hidden = named.find((channel) => hiddenFromEveryone(channel, guild.id));
+  if (hidden) {
+    return { channel: hidden, created: false, moved: false, relocated: false, hidden: true };
+  }
+
+  const orphan = named.find((channel) => !channel?.parentId);
+  if (orphan && createMissing && typeof orphan.setParent === 'function') {
+    await orphan.setParent(categoryId, { lockPermissions: true, reason: moveReason });
+    return { channel: orphan, created: false, moved: true, relocated: false, hidden: false };
+  }
+
+  if (!createMissing) return { channel: null, created: false, moved: false, relocated: false, hidden: false, skipped: true };
+
+  const created = await guild.channels.create({
+    name,
+    type,
+    parent: categoryId,
+    reason: 'Nexus Sentinal module setup/repair'
+  });
+  return { channel: created, created: true, moved: false, relocated: false, hidden: false };
 }
 
 async function renameManagedCategory(category, moduleId) {
@@ -118,37 +179,18 @@ class ModuleProvisioner {
     return { category: created, created: true, renamed: false, matchScore: 0, source: 'created' };
   }
 
-  async textChannel(guild, category, name) {
-    const all = await guild.channels.fetch();
-    const existing = all.find((channel) => channel?.type === ChannelType.GuildText && channel.parentId === category.id && channel.name === name);
-    if (existing) return { channel: existing, created: false, moved: false };
-
-    // A previous fuzzy-category mistake can leave a uniquely named managed channel
-    // under the wrong module. Move that channel instead of creating a duplicate and
-    // abandoning its messages/history.
-    const movable = uniqueNamedChannel(all, ChannelType.GuildText, name);
-    if (movable && typeof movable.setParent === 'function') {
-      await movable.setParent(category.id, { lockPermissions: true, reason: 'Nexus Sentinal module category repair' });
-      return { channel: movable, created: false, moved: true };
-    }
-
-    const created = await guild.channels.create({ name, type: ChannelType.GuildText, parent: category.id, reason: 'Nexus Sentinal module setup/repair' });
-    return { channel: created, created: true, moved: false };
+  async textChannel(guild, category, name, options = {}) {
+    return resolveManagedChannel(guild, category, name, ChannelType.GuildText, {
+      createMissing: options.createMissing !== false,
+      moveReason: 'Nexus Sentinal module category repair'
+    });
   }
 
-  async lobbyBuilder(guild, category, name) {
-    const all = await guild.channels.fetch();
-    const existing = all.find((channel) => channel?.type === ChannelType.GuildVoice && channel.parentId === category.id && channel.name === name);
-    if (existing) return { channel: existing, created: false, moved: false };
-
-    const movable = uniqueNamedChannel(all, ChannelType.GuildVoice, name);
-    if (movable && typeof movable.setParent === 'function') {
-      await movable.setParent(category.id, { lockPermissions: true, reason: 'Nexus Sentinal join-to-build category repair' });
-      return { channel: movable, created: false, moved: true };
-    }
-
-    const created = await guild.channels.create({ name, type: ChannelType.GuildVoice, parent: category.id, reason: 'Nexus Sentinal module setup/repair' });
-    return { channel: created, created: true, moved: false };
+  async lobbyBuilder(guild, category, name, options = {}) {
+    return resolveManagedChannel(guild, category, name, ChannelType.GuildVoice, {
+      createMissing: options.createMissing !== false,
+      moveReason: 'Nexus Sentinal join-to-build category repair'
+    });
   }
 
   async provision(guild, moduleId, categoryId = '') {
@@ -161,18 +203,28 @@ class ModuleProvisioner {
     const textChannels = [];
     const createdChannels = [];
     const movedChannels = [];
+    const preserveManualLayout = respectsManualLayout(this.config, guild.id);
+    const textNames = preserveManualLayout
+      ? layout.text.filter((name) => name === layout.consoleChannel)
+      : layout.text;
 
-    for (const name of layout.text) {
+    for (const name of textNames) {
       const result = await this.textChannel(guild, category, name);
-      textChannels.push({ name, id: String(result.channel.id) });
+      if (!result.channel) continue;
+      textChannels.push({
+        name,
+        id: String(result.channel.id),
+        relocated: Boolean(result.relocated),
+        hidden: Boolean(result.hidden)
+      });
       if (result.created) createdChannels.push(name);
       if (result.moved) movedChannels.push(name);
     }
 
-    const builderResult = await this.lobbyBuilder(guild, category, layout.lobbyBuilder);
+    const builderResult = await this.lobbyBuilder(guild, category, layout.lobbyBuilder, { createMissing: !preserveManualLayout });
     const builder = builderResult.channel;
-    if (builderResult.created) createdChannels.push(layout.lobbyBuilder);
-    if (builderResult.moved) movedChannels.push(layout.lobbyBuilder);
+    if (builder && builderResult.created) createdChannels.push(layout.lobbyBuilder);
+    if (builder && builderResult.moved) movedChannels.push(layout.lobbyBuilder);
     const accessPolicy = await reconcileModuleAccessPolicy(guild, moduleId, category, { state: this.state, config: this.config });
     const consoleChannel = textChannels.find((channel) => channel.name === layout.consoleChannel) || textChannels[0] || null;
     const setup = {
@@ -186,8 +238,10 @@ class ModuleProvisioner {
       categoryMatchScore: Number(categoryResult.matchScore.toFixed(3)),
       consoleChannelId: consoleChannel?.id || '',
       textChannels,
-      lobbyBuilderChannelId: String(builder.id),
-      lobbyBuilderName: String(builder.name),
+      lobbyBuilderChannelId: builder ? String(builder.id) : '',
+      lobbyBuilderName: builder ? String(builder.name) : '',
+      lobbyRelocated: Boolean(builderResult.relocated),
+      lobbyHidden: Boolean(builderResult.hidden),
       createdChannels,
       movedChannels,
       accessPolicy: {
@@ -217,13 +271,18 @@ class ModuleProvisioner {
     return Object.values(this.state.listModuleSetups()).find((setup) => setup.guildId === String(guildId) && setup.lobbyBuilderChannelId === String(channelId)) || null;
   }
 
-  async createOrReuseLobby(member, setup) {
+  async createOrReuseLobby(member, setup, triggerChannel = null) {
     if (GAME_BOT_JTC.has(setup?.moduleId)) return null;
+    const parentId = await triggerParentId(member?.guild, triggerChannel, setup?.categoryId);
     const existingState = this.state.findTempLobbyByOwner(setup.moduleId, String(member.id));
     if (existingState) {
       try {
         const existing = await member.guild.channels.fetch(existingState.channelId);
         if (existing?.type === ChannelType.GuildVoice) {
+          if (parentId && String(existing.parentId || '') !== parentId && typeof existing.setParent === 'function') {
+            await existing.setParent(parentId, { lockPermissions: false, reason: 'Nexus Sentinal: keep temporary lobby with its join-to-create trigger' });
+            this.state.setTempLobby(String(existing.id), { ...existingState, categoryId: parentId });
+          }
           await member.voice.setChannel(existing, 'Nexus Sentinal: return to temporary lobby');
           return existing;
         }
@@ -237,12 +296,12 @@ class ModuleProvisioner {
     const lobby = await member.guild.channels.create({
       name: `🎮 ${owner}'s Lobby`,
       type: ChannelType.GuildVoice,
-      parent: setup.categoryId,
+      parent: parentId,
       reason: `Nexus Sentinal temporary ${setup.moduleId} lobby`
     });
     this.state.setTempLobby(String(lobby.id), {
       channelId: String(lobby.id), moduleId: setup.moduleId, guildId: String(member.guild.id),
-      categoryId: setup.categoryId, ownerId: String(member.id), createdAt: new Date().toISOString()
+      categoryId: parentId, ownerId: String(member.id), createdAt: new Date().toISOString()
     });
     await member.voice.setChannel(lobby, 'Nexus Sentinal join-to-build lobby');
     return lobby;
@@ -264,7 +323,11 @@ class ModuleProvisioner {
     if (!newState.channelId || !newState.member) return;
     const setup = this.setupForBuilder(newState.guild.id, newState.channelId);
     if (!setup || GAME_BOT_JTC.has(setup.moduleId)) return;
-    try { await this.createOrReuseLobby(newState.member, setup); }
+    let trigger = newState.channel || null;
+    if (!String(trigger?.parentId || '') && newState.channelId && typeof newState.guild?.channels?.fetch === 'function') {
+      trigger = await newState.guild.channels.fetch(newState.channelId).catch(() => trigger);
+    }
+    try { await this.createOrReuseLobby(newState.member, setup, trigger); }
     catch (error) { console.error(`[Sentinal] join-to-build ${setup.moduleId}:`, error.message); }
   }
 
@@ -293,5 +356,7 @@ module.exports = {
   normalizeDiscordName,
   renameManagedCategory,
   similarityScore,
-  uniqueNamedChannel
+  uniqueNamedChannel,
+  resolveManagedChannel,
+  triggerParentId
 };

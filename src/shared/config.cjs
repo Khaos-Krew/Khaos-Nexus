@@ -56,6 +56,13 @@ function loadConfig(options = {}) {
     );
   }
   if (process.env.NEXUS_MAX_TEMP_LOBBIES) config.discord.maxTemporaryLobbiesPerModule = Number(process.env.NEXUS_MAX_TEMP_LOBBIES);
+  // Default off: unknown guilds keep automatic subchannel creation and A-Z game order.
+  // Set NEXUS_RESPECT_MANUAL_LAYOUT=true on a deployment to stop both.
+  // Optional NEXUS_RESPECT_MANUAL_LAYOUT_GUILD_IDS limits that to listed guilds.
+  config.discord.respectManualLayout = /^(1|true|yes|on)$/i.test(String(process.env.NEXUS_RESPECT_MANUAL_LAYOUT || '').trim());
+  config.discord.respectManualLayoutGuildIds = process.env.NEXUS_RESPECT_MANUAL_LAYOUT_GUILD_IDS
+    ? csv(process.env.NEXUS_RESPECT_MANUAL_LAYOUT_GUILD_IDS)
+    : [];
   if (process.env.NEXUS_SENTINAL_ADMIN_URL) config.discord.sentinalAdminUrl = process.env.NEXUS_SENTINAL_ADMIN_URL;
   if (process.env.NEXUS_SENTINAL_ADMIN_TOKEN_ENV) config.discord.sentinalAdminTokenEnv = process.env.NEXUS_SENTINAL_ADMIN_TOKEN_ENV;
   if (process.env.NEXUS_STATUS_CHANNEL_ID) config.discord.nexusStatus.channelId = process.env.NEXUS_STATUS_CHANNEL_ID;

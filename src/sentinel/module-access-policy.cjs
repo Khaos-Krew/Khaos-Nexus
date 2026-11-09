@@ -4,6 +4,7 @@ const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const { NEXUS_RANKS } = require('../shared/ranks.cjs');
 const { MODULES, getModule } = require('../backend/modules/catalog.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
+const { isStaffCategoryChannel, isStaffLocated } = require('./manual-layout.cjs');
 
 function normalizeName(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -142,12 +143,38 @@ function managedCategoryChannels(source, category) {
 }
 
 async function reconcileModuleAccessPolicy(guild, moduleId, category, options = {}) {
+  let channelIndex = options.channelsSnapshot || null;
+  if (!channelIndex && typeof guild?.channels?.fetch === 'function') {
+    channelIndex = await guild.channels.fetch().catch(() => null);
+  }
+  if (isStaffCategoryChannel(category) || isStaffLocated(category, channelIndex)) {
+    return {
+      ok: true,
+      skipped: true,
+      moduleId,
+      categoryId: String(category?.id || ''),
+      reason: 'staff-category',
+      changed: 0,
+      channels: []
+    };
+  }
   const context = await modulePolicyContext(guild, moduleId, category, options);
   if (!context.ok) return context;
-  const channels = await managedCategoryChannels(guild, category);
+  const channels = await managedCategoryChannels(channelIndex || guild, category);
   let changed = 0;
   const results = [];
   for (const channel of channels) {
+    if (isStaffCategoryChannel(channel) || isStaffLocated(channel, channelIndex)) {
+      results.push({
+        channelId: String(channel.id),
+        channelName: String(channel.name || ''),
+        ok: true,
+        changed: 0,
+        skipped: true,
+        reason: 'staff-category'
+      });
+      continue;
+    }
     const result = await reconcileChannelViewPolicy(channel, context.policy, `Nexus Sentinal ${moduleId} access policy`);
     changed += result.changed || 0;
     results.push({ channelId: String(channel.id), channelName: String(channel.name || ''), ...result });

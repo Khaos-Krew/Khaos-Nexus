@@ -60,7 +60,8 @@ function resolveVanguardJtcCategoryId(env) {
   const gateId = snowflake(env.VANGUARD_DISCORD_CATEGORY_ID);
   if (!gateId) return '';
   const override = snowflake(env.VANGUARD_JTC_CATEGORY_ID);
-  // A different override is ignored. Temporary channels stay inside the gate.
+  // A different override is ignored. It cannot redirect rooms away from the trigger.
+  // Temporary rooms are created in the trigger channel's current parent.
   if (override && override !== gateId) return gateId;
   return gateId;
 }
@@ -141,8 +142,11 @@ class JtcStore {
     return this.state.channels[String(channelId)] || null;
   }
 
-  findByCreator(creatorId, categoryId) {
-    return this.list().find((row) => row.creatorId === String(creatorId) && row.categoryId === String(categoryId)) || null;
+  findByCreator(creatorId, categoryId = '') {
+    const rows = this.list().filter((row) => row.creatorId === String(creatorId));
+    if (!rows.length) return null;
+    const wanted = String(categoryId || '');
+    return rows.find((row) => wanted && row.categoryId === wanted) || rows[0];
   }
 
   upsert(row) {
@@ -204,9 +208,8 @@ class JoinToCreate {
     if (newState?.member?.user?.bot) return { action: 'ignored', reason: 'bot' };
 
     const parentId = await this.parentId(newState);
-    if (parentId && parentId !== this.config.categoryId) return { action: 'ignored', reason: 'category' };
     if (!parentId) return { action: 'ignored', reason: 'category' };
-    return this.claimLobby(newState.member, guild);
+    return this.claimLobby(newState.member, guild, parentId);
   }
 
   async parentId(state) {
@@ -221,15 +224,24 @@ class JoinToCreate {
     return guild.channels.fetch(String(channelId)).catch(() => null);
   }
 
-  async claimLobby(member, guild) {
+  async claimLobby(member, guild, parentId = '') {
+    const roomParent = String(parentId || '');
+    if (!roomParent) return { action: 'ignored', reason: 'category' };
     const userId = String(member?.id || '');
     if (!userId || this.creating.has(userId)) return { action: 'ignored', reason: 'in-flight' };
     this.creating.add(userId);
     try {
-      const existing = this.store.findByCreator(userId, this.config.categoryId);
+      const existing = this.store.findByCreator(userId, roomParent);
       if (existing && existing.channelId !== this.config.lobbyId) {
         const channel = await this.fetchChannel(guild, existing.channelId);
         if (channel && channel.id !== this.config.lobbyId) {
+          if (String(channel.parentId || '') !== roomParent && typeof channel.setParent === 'function') {
+            await channel.setParent(roomParent, { lockPermissions: false, reason: 'Nexus join-to-create follows the trigger category' });
+            channel.parentId = roomParent;
+          }
+          if (String(existing.categoryId || '') !== roomParent) {
+            this.store.upsert({ ...existing, categoryId: roomParent });
+          }
           await member.voice.setChannel(channel, 'join-to-create');
           this.cancelDelete(existing.channelId);
           this.log({ action: 'moved', owned: this.ownedCount() });
@@ -245,7 +257,7 @@ class JoinToCreate {
       const channel = await guild.channels.create({
         name,
         type: ChannelType.GuildVoice,
-        parent: this.config.categoryId,
+        parent: roomParent,
         reason: 'Nexus join-to-create'
       });
       if (!channel?.id || String(channel.id) === this.config.lobbyId) {
@@ -256,7 +268,7 @@ class JoinToCreate {
         channelId: channel.id,
         creatorId: userId,
         guildId: guild.id,
-        categoryId: this.config.categoryId,
+        categoryId: roomParent,
         createdAt: new Date(this.now()).toISOString()
       });
       try {

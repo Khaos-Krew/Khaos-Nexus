@@ -3,11 +3,12 @@
 const { ChannelType, OverwriteType, PermissionFlagsBits } = require('discord.js');
 const { MODULES } = require('../backend/modules/catalog.cjs');
 const { layoutFor } = require('./module-layouts.cjs');
+const { respectsManualLayout } = require('./manual-layout.cjs');
 const { applyManagedOverwrites, existingOverwriteEntries, refusePermissionStaffFallback } = require('./staff-workspace.cjs');
 
 const DEFAULT_BOUNDARY_NAMES = Object.freeze(['hidden server', 'staff']);
 const STRUCTURAL_CATEGORY_ALIASES = Object.freeze({
-  information: Object.freeze(['information', 'info']),
+  information: Object.freeze(['information', 'info', 'start here']),
   nexusHq: Object.freeze(['nexus hq', 'nexus headquarters', 'community hq']),
   supporterHub: Object.freeze(['supporter hub', 'supporters hub', 'supporter lounge', 'supporters']),
   staff: Object.freeze(['staff', 'staff operations']),
@@ -307,8 +308,9 @@ async function reconcileServerCategoryOrder(guild, options = {}) {
   const privacy = await reconcileStructuralPrivacy(guild, options, plan.structural, channels, roles);
   const desired = plan.entries.map((entry) => entry.label);
   let moved = 0;
+  const preserveOrder = options.preserveCategoryOrder === true || respectsManualLayout(options.config || {}, guild?.id);
 
-  if (!serverCategoryOrderIsCorrect(plan)) {
+  if (!preserveOrder && !serverCategoryOrderIsCorrect(plan)) {
     const updates = categoryPositionUpdates(plan);
     if (updates.length && typeof guild.channels?.setPositions === 'function') {
       await guild.channels.setPositions(updates, 'Nexus Sentinal: enforce canonical server category hierarchy');
@@ -329,6 +331,7 @@ async function reconcileServerCategoryOrder(guild, options = {}) {
     skipped: false,
     moved,
     renamed: names.renamed,
+    orderPreserved: preserveOrder,
     ordered: plan.modules.map((entry) => entry.label),
     hierarchy: desired,
     missing,
