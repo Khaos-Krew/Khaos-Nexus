@@ -57,12 +57,17 @@ function snowflake(value) {
   return /^\d{17,20}$/.test(id) ? id : '';
 }
 
+function isAutocompleteInteraction(interaction) {
+  return typeof interaction?.isAutocomplete === 'function' && interaction.isAutocomplete();
+}
+
 function isCraftInteraction(interaction) {
   const customId = String(interaction?.customId || '');
   if (customId.startsWith('craft:')) return true;
-  if (typeof interaction?.isChatInputCommand === 'function' && interaction.isChatInputCommand()) {
-    return CRAFT_COMMAND_NAMES.includes(String(interaction.commandName || ''));
-  }
+  const name = String(interaction?.commandName || '');
+  if (!CRAFT_COMMAND_NAMES.includes(name)) return false;
+  if (typeof interaction?.isChatInputCommand === 'function' && interaction.isChatInputCommand()) return true;
+  if (isAutocompleteInteraction(interaction)) return true;
   return false;
 }
 
@@ -203,6 +208,10 @@ function repostSummary(result) {
 }
 
 async function safeReply(interaction, payload) {
+  if (isAutocompleteInteraction(interaction)) {
+    if (typeof interaction.respond === 'function') await interaction.respond([]);
+    return;
+  }
   if (interaction.deferred || interaction.replied) {
     if (typeof interaction.followUp === 'function') await interaction.followUp(payload);
     else if (typeof interaction.editReply === 'function') await interaction.editReply(payload);
@@ -238,6 +247,10 @@ async function handleSentinalCraftInteraction(interaction, context) {
   if (!isCraftInteraction(interaction)) return false;
   const env = context.env || process.env;
   if (!craftModuleEnabled(env)) {
+    if (isAutocompleteInteraction(interaction)) {
+      if (typeof interaction.respond === 'function') await interaction.respond([]);
+      return true;
+    }
     await safeReply(interaction, ephemeral(MODULE_OFF));
     return true;
   }
@@ -301,6 +314,7 @@ module.exports = {
   CRAFT_COMMAND_NAMES,
   MODULE_OFF,
   attachCraftModule,
+  isAutocompleteInteraction,
   craftModuleEnabled,
   craftModuleLayoutPolicy,
   handleRealmRepost,

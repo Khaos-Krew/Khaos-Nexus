@@ -17,6 +17,7 @@ const {
   craftModuleEnabled,
   craftModuleLayoutPolicy,
   handleSentinalCraftInteraction,
+  isCraftInteraction,
   repostOpenRealms,
   sentinalCraftCommands
 } = require('../src/sentinel/craft-module.cjs');
@@ -84,6 +85,7 @@ function chat(commandName, sub, { userId = OWNER, staff = false, category = CATE
       getChannel: () => null
     },
     isChatInputCommand: () => true,
+    isAutocomplete: () => false,
     isButton: () => false,
     isModalSubmit: () => false,
     reply: async (payload) => {
@@ -327,4 +329,50 @@ test('craft module source does not mutate layout or log RCON secrets', () => {
   assert.match(read('docs/ops/SENTINAL_CRAFT_MODULE.md'), /1016059608789434408/);
   assert.match(read('Dockerfile.sentinal'), /SENTINAL_CRAFT_MODULE\.md/);
   assert.match(read('docs/ops/NEXUS_CRAFT.md'), /SENTINAL_CRAFT_MODULE/);
+});
+
+test('craft autocomplete interactions are recognized and stay silent when the module is off', async () => {
+  assert.equal(isCraftInteraction({
+    commandName: 'mc',
+    isChatInputCommand: () => false,
+    isAutocomplete: () => true
+  }), true);
+  assert.equal(isCraftInteraction({
+    commandName: 'nexus',
+    isChatInputCommand: () => false,
+    isAutocomplete: () => true
+  }), false);
+
+  const events = {};
+  const client = {
+    once() {},
+    on(name, fn) { (events[name] ||= []).push(fn); },
+    guilds: { fetch: async () => { throw new Error('should not fetch'); } }
+  };
+  attachCraftModule(client, {
+    env: { SENTINAL_CRAFT_MODULE: 'false' },
+    log: { log() {}, warn() {} },
+    loops: false
+  });
+  const choices = [];
+  const replies = [];
+  const interaction = {
+    commandName: 'mc',
+    customId: '',
+    isChatInputCommand: () => false,
+    isAutocomplete: () => true,
+    isButton: () => false,
+    isModalSubmit: () => false,
+    replied: false,
+    deferred: false,
+    respond: async (payload) => { choices.push(...payload); },
+    reply: async (payload) => { replies.push(payload); }
+  };
+  await events[Events.InteractionCreate][0](interaction);
+  assert.deepEqual(choices, []);
+  assert.equal(replies.length, 0);
+
+  const handled = await handleSentinalCraftInteraction(interaction, { env: { SENTINAL_CRAFT_MODULE: 'false' } });
+  assert.equal(handled, true);
+  assert.equal(replies.length, 0);
 });

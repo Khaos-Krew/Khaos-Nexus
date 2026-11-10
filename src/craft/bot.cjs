@@ -19,11 +19,18 @@ const { categoryIdForInteraction } = require('../game-bots/category-gate.cjs');
 const { errorClass } = require('../game-bots/command-failure.cjs');
 const { snowflake, upsertEmbed } = require('../game-bots/panel-message.cjs');
 const { craftIsStaff, decideCategory, readCraftCategory, realmDecisionAllowed } = require('./access.cjs');
-const { buildRealmEmbed, buildStatusPayload, COLORS, MOTTO } = require('./embeds.cjs');
+const { buildAllServersStatusEmbed, buildRealmEmbed, buildStatusPayload, COLORS, MOTTO } = require('./embeds.cjs');
 const { craftHelpText } = require('./help.cjs');
 const { redactSecret } = require('./protocol.cjs');
 const { minecraftCommand, pingBedrock, pingJava, probeServerStatus, runRcon } = require('./query.cjs');
 const { openCraftStore } = require('./store.cjs');
+const {
+  autocompleteSavedServers,
+  autocompleteStatusHosts,
+  emptyListNote,
+  resolveStatusSelection,
+  staleNote
+} = require('./status-targets.cjs');
 const { handleMcPointsCommand, installMcEconomyLoops } = require('./mc-points-commands.cjs');
 
 const STATUS_IDENTITY = Object.freeze({
@@ -121,7 +128,8 @@ function craftCommands(env = process.env) {
     .setName('server')
     .setDescription('Saved server name. Blank uses default.')
     .setMaxLength(32)
-    .setRequired(false));
+    .setRequired(false)
+    .setAutocomplete(true));
   const flags = mcPointsFlags(env);
   const mc = new SlashCommandBuilder()
       .setName('mc')
@@ -130,7 +138,7 @@ function craftCommands(env = process.env) {
       .addSubcommand((sub) => sub
         .setName('status')
         .setDescription('Java server-list ping and optional Bedrock RakNet ping. No RCON.')
-        .addStringOption((option) => option.setName('host').setDescription('Server hostname or IP.').setRequired(true).setMaxLength(255))
+        .addStringOption((option) => option.setName('host').setDescription('Saved server, All servers, or a raw host:port. Leave blank for all.').setRequired(false).setMaxLength(255).setAutocomplete(true))
         .addStringOption((option) => option.setName('edition').setDescription('Which ping to run.').addChoices(
           { name: 'Java', value: 'java' },
           { name: 'Bedrock', value: 'bedrock' },
@@ -141,7 +149,7 @@ function craftCommands(env = process.env) {
       .addSubcommand((sub) => sub
         .setName('panel')
         .setDescription('Staff: post or take over the durable status embed in this channel.')
-        .addStringOption((option) => option.setName('host').setDescription('Public join hostname or IP.').setRequired(true).setMaxLength(255))
+        .addStringOption((option) => option.setName('host').setDescription('Public join hostname, IP, or a saved server.').setRequired(true).setMaxLength(255).setAutocomplete(true))
         .addStringOption((option) => option.setName('type').setDescription('Java, Bedrock, or a Java server with Geyser.').addChoices(
           { name: 'Java', value: 'java' },
           { name: 'Bedrock', value: 'bedrock' },
@@ -576,10 +584,81 @@ async function handleRealmDecision(interaction, context, action, applicationId) 
   }
 }
 
+async function handleCraftAutocomplete(interaction, context) {
+  const store = context.store;
+  const focused = interaction.options?.getFocused?.(true) || {};
+  const name = String(interaction.commandName || '');
+  const sub = interaction.options?.getSubcommand?.(false) || '';
+  const optionName = String(focused.name || '');
+  const value = focused.value == null ? '' : String(focused.value);
+  let choices = [];
+  if (optionName === 'host' && name === 'mc' && sub === 'panel') {
+    choices = autocompleteStatusHosts(store, value, { includeAll: false, valueAsAddress: true });
+  } else if (optionName === 'host' && name === 'mc' && (sub === 'status' || !sub)) {
+    choices = autocompleteStatusHosts(store, value);
+  } else if (optionName === 'server') {
+    choices = autocompleteSavedServers(store, value);
+  }
+  if (typeof interaction.respond === 'function') await interaction.respond(choices);
+}
+
+async function replyMcStatus(interaction, context, selection) {
+  const notes = [];
+  if (selection.mode === 'invalid') {
+    await interaction.editReply({ content: selection.error, allowedMentions: { parse: [] } });
+    return;
+  }
+  if (selection.mode === 'all' && !selection.targets.length) {
+    await interaction.editReply({ content: emptyListNote(), allowedMentions: { parse: [] } });
+    return;
+  }
+  const probe = context.probeServerStatus || probeServerStatus;
+  const results = [];
+  for (const target of selection.targets) {
+    const snapshot = await probe({
+      host: target.host,
+      kind: target.kind || 'java',
+      javaPort: target.javaPort,
+      bedrockPort: target.bedrockPort
+    });
+    const warning = staleNote(target);
+    if (warning) notes.push(warning);
+    results.push({ target, snapshot, staleNote: warning });
+  }
+  if (selection.mode === 'all' || results.length > 1) {
+    await interaction.editReply({
+      ...buildAllServersStatusEmbed({ results, notes }),
+      allowedMentions: { parse: [] }
+    });
+    return;
+  }
+  const entry = results[0];
+  const payload = buildStatusPayload({
+    ...entry.snapshot,
+    kind: entry.target.kind || entry.snapshot.kind,
+    host: entry.target.host,
+    javaPort: entry.target.javaPort,
+    bedrockPort: entry.target.bedrockPort,
+    includeStaffActions: false
+  });
+  if (notes.length) payload.content = notes.join('\n');
+  await interaction.editReply(payload);
+}
+
 async function handleCraftInteraction(interaction, context) {
   const env = context.env || process.env;
   const store = context.store;
   const config = context.config || {};
+  if (typeof interaction.isAutocomplete === 'function' && interaction.isAutocomplete()) {
+    const categoryId = await categoryIdForInteraction(interaction);
+    const gate = decideCategory(env, categoryId);
+    if (!gate.allow) {
+      if (typeof interaction.respond === 'function') await interaction.respond([]);
+      return;
+    }
+    await handleCraftAutocomplete(interaction, context);
+    return;
+  }
   const customId = String(interaction.customId || '');
   const decisionButton = /^craft:realm:(approve|deny):([a-f0-9]{12})$/.exec(customId);
   if (!decisionButton) {
@@ -649,14 +728,12 @@ async function handleCraftInteraction(interaction, context) {
       if (sub === 'status') {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const edition = optionString(interaction, 'edition') || 'java';
-        const kind = edition === 'bedrock' ? 'bedrock' : edition === 'both' ? 'geyser' : 'java';
-        const snapshot = await probeServerStatus({
-          host: optionString(interaction, 'host'),
-          kind,
-          javaPort: optionInteger(interaction, 'port') || 25565,
-          bedrockPort: optionInteger(interaction, 'bedrock_port') || 19132
+        const selection = resolveStatusSelection(optionString(interaction, 'host'), store, {
+          edition,
+          javaPort: optionInteger(interaction, 'port'),
+          bedrockPort: optionInteger(interaction, 'bedrock_port')
         });
-        await interaction.editReply(buildStatusPayload({ ...snapshot, kind, includeStaffActions: false }));
+        await replyMcStatus(interaction, context, selection);
         return;
       }
       if (sub === 'panel') {
@@ -925,6 +1002,7 @@ function startCraftDiscord({ env = process.env, state = {}, token, client } = {}
 
 module.exports = {
   craftCommands,
+  handleCraftAutocomplete,
   handleCraftInteraction,
   handleRealmDecision,
   listingPayload,

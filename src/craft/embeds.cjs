@@ -191,6 +191,47 @@ function buildRealmEmbed(listing = {}) {
   }]);
 }
 
+
+function serverSummaryLine(entry = {}) {
+  const snapshot = entry.snapshot || {};
+  const status = snapshot.kind === 'bedrock' ? snapshot.bedrock : snapshot.java;
+  const parts = [statusLabel(status) || 'Offline'];
+  const players = playerLine(status);
+  if (players) parts.push(players);
+  if (status && !status.offline && status.version) parts.push(cleanField(status.version, 40));
+  const ping = latencyLine(status);
+  if (ping) parts.push(ping);
+  return parts.join(' • ');
+}
+
+function buildAllServersStatusEmbed(input = {}) {
+  const results = Array.isArray(input.results) ? input.results : [];
+  const notes = (input.notes || []).filter(Boolean);
+  const fields = [];
+  for (const entry of results) {
+    const target = entry.target || {};
+    const address = joinValue(target.host, target.javaPort || target.port) || target.host || 'unknown';
+    const name = cleanField(target.name, 80) || 'Server';
+    let value = serverSummaryLine(entry);
+    if (entry.staleNote) value = `${value}\n${cleanField(entry.staleNote, 200)}`;
+    addField(fields, `${name} • ${address}`.slice(0, 256), value, { inline: false });
+  }
+  const description = notes.map((note) => cleanField(note, 300)).filter(Boolean).join('\n');
+  const anyOnline = results.some((entry) => {
+    const snapshot = entry.snapshot || {};
+    const status = snapshot.kind === 'bedrock' ? snapshot.bedrock : snapshot.java;
+    return status && !status.offline;
+  });
+  const embed = {
+    title: 'Nexus Craft • Server status',
+    color: results.length && anyOnline ? COLORS.fieryRed : COLORS.black,
+    footer: footer('status')
+  };
+  if (description) embed.description = description.slice(0, 4000);
+  if (fields.length) embed.fields = fields;
+  return payload(embed);
+}
+
 function buildStatusPayload(input = {}) {
   const kind = input.kind === 'bedrock' || input.kind === 'geyser' ? input.kind : 'java';
   if (kind === 'bedrock') return buildBedrockEmbed(input);
@@ -206,6 +247,7 @@ module.exports = {
   COLORS,
   MOTTO,
   buildBedrockEmbed,
+  buildAllServersStatusEmbed,
   buildGeyserEmbed,
   buildJavaEmbed,
   buildRealmEmbed,
