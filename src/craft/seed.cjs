@@ -12,6 +12,15 @@ const SEED_FILES = Object.freeze([
 const MAX_JSON_CHARS = 2_000_000;
 const MAX_SECRET_CHARS = 4096;
 
+function overwriteEnabled(env = {}) {
+  const value = String(env.SENTINAL_CRAFT_SEED_OVERWRITE || '').trim().toLowerCase();
+  return value === 'true' || value === '1' || value === 'yes' || value === 'on';
+}
+
+function backupFolderName(now = new Date()) {
+  return `craft-seed-backup-${now.toISOString().replace(/[:.]/g, '-')}`;
+}
+
 function decodeBase64(value) {
   const compact = String(value || '').replace(/\s+/g, '');
   if (!compact || compact.length > MAX_JSON_CHARS || !/^[A-Za-z0-9+/]+={0,2}$/.test(compact)) {
@@ -53,17 +62,51 @@ function writeNewFile(file, text) {
   }
 }
 
+function writeOverwrittenFile(file, text) {
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  const fd = fs.openSync(tmp, 'wx', 0o600);
+  try {
+    fs.writeSync(fd, text);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, file);
+}
+
 function logLine(log, line) {
   if (typeof log === 'function') log(line);
   else if (log && typeof log.log === 'function') log.log(line);
   else console.log(line);
 }
 
+function backupExisting(root, files, log, now) {
+  const existing = files.filter((name) => fs.existsSync(path.join(root, name)));
+  if (!existing.length) return { folder: '', files: [] };
+  const folder = backupFolderName(now);
+  const dest = path.join(root, folder);
+  fs.mkdirSync(dest, { recursive: true, mode: 0o700 });
+  for (const name of existing) {
+    const target = path.join(dest, name);
+    fs.copyFileSync(path.join(root, name), target);
+    try {
+      fs.chmodSync(target, 0o600);
+    } catch {
+      // Best-effort mode on filesystems that ignore chmod.
+    }
+  }
+  logLine(log, `[Nexus Sentinal] craft seed backed up ${existing.join(', ')} to ${folder}`);
+  return { folder, files: existing };
+}
+
 // One-time copy from env into the data directory. Existing files stay as they
-// are. Logs name the file and never the JSON or the vault secret.
-function seedCraftFiles({ dir = '', env = process.env, log = console } = {}) {
+// are unless SENTINAL_CRAFT_SEED_OVERWRITE is true (or 1/yes/on). In that
+// case existing files are copied into a timestamped backup folder on the same
+// volume before the seed is written. Logs name the file and never the JSON or
+// the vault secret.
+function seedCraftFiles({ dir = '', env = process.env, log = console, now = new Date() } = {}) {
   const requested = SEED_FILES.filter((job) => String(env?.[job.envName] || '').trim());
-  const result = { seeded: [], skipped: [], failed: [] };
+  const result = { seeded: [], skipped: [], failed: [], backedUp: [], backupFolder: '' };
   if (!requested.length) return result;
   const root = String(dir || '').trim();
   if (!root) {
@@ -71,9 +114,16 @@ function seedCraftFiles({ dir = '', env = process.env, log = console } = {}) {
     result.failed.push(...requested.map((job) => job.file));
     return result;
   }
+  const overwrite = overwriteEnabled(env);
+  if (overwrite) {
+    logLine(log, '[Nexus Sentinal] craft seed overwrite enabled');
+  }
+  const resolved = path.resolve(root);
+  const prepared = [];
   for (const job of requested) {
-    const file = path.join(path.resolve(root), job.file);
-    if (fs.existsSync(file)) {
+    const file = path.join(resolved, job.file);
+    const exists = fs.existsSync(file);
+    if (exists && !overwrite) {
       result.skipped.push(job.file);
       logLine(log, `[Nexus Sentinal] craft seed left existing ${job.file} in place`);
       continue;
@@ -84,24 +134,43 @@ function seedCraftFiles({ dir = '', env = process.env, log = console } = {}) {
       logLine(log, `[Nexus Sentinal] craft seed failed for ${job.file}`);
       continue;
     }
+    prepared.push({ job, file, payload, exists });
+  }
+  if (overwrite) {
+    const backup = backupExisting(
+      resolved,
+      prepared.filter((item) => item.exists).map((item) => item.job.file),
+      log,
+      now
+    );
+    result.backedUp = backup.files;
+    result.backupFolder = backup.folder;
+  }
+  for (const item of prepared) {
     try {
-      writeNewFile(file, payload.text);
-      result.seeded.push(job.file);
-      logLine(log, `[Nexus Sentinal] craft seed wrote ${job.file}`);
+      if (item.exists && overwrite) {
+        writeOverwrittenFile(item.file, item.payload.text);
+        result.seeded.push(item.job.file);
+        logLine(log, `[Nexus Sentinal] craft seed replaced ${item.job.file}`);
+      } else {
+        writeNewFile(item.file, item.payload.text);
+        result.seeded.push(item.job.file);
+        logLine(log, `[Nexus Sentinal] craft seed wrote ${item.job.file}`);
+      }
     } catch (error) {
-      if (error?.code === 'EEXIST') {
-        result.skipped.push(job.file);
-        logLine(log, `[Nexus Sentinal] craft seed left existing ${job.file} in place`);
+      if (error?.code === 'EEXIST' && !overwrite) {
+        result.skipped.push(item.job.file);
+        logLine(log, `[Nexus Sentinal] craft seed left existing ${item.job.file} in place`);
         continue;
       }
-      result.failed.push(job.file);
-      logLine(log, `[Nexus Sentinal] craft seed failed for ${job.file}`);
+      result.failed.push(item.job.file);
+      logLine(log, `[Nexus Sentinal] craft seed failed for ${item.job.file}`);
     }
   }
   if (result.seeded.length || result.skipped.length) {
-    logLine(log, '[Nexus Sentinal] craft seed finished; remove SENTINAL_CRAFT_SEED_JSON, SENTINAL_CRAFT_SEED_RCON_JSON, and SENTINAL_CRAFT_SEED_RCON_SECRET');
+    logLine(log, '[Nexus Sentinal] craft seed finished; remove SENTINAL_CRAFT_SEED_JSON, SENTINAL_CRAFT_SEED_RCON_JSON, SENTINAL_CRAFT_SEED_RCON_SECRET, and SENTINAL_CRAFT_SEED_OVERWRITE');
   }
   return result;
 }
 
-module.exports = { SEED_FILES, seedCraftFiles };
+module.exports = { SEED_FILES, seedCraftFiles, overwriteEnabled, backupFolderName };

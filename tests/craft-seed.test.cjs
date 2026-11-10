@@ -93,7 +93,7 @@ test('craft seed refuses invalid payloads without creating a file', () => {
   assert.equal(fs.existsSync(path.join(dir, 'nexus-craft.json')), false);
   assert.equal(lines.join('\n').includes('not json'), false);
   const quiet = seedCraftFiles({ dir, env: {}, log: { log: () => { throw new Error('must not log'); } } });
-  assert.deepEqual(quiet, { seeded: [], skipped: [], failed: [] });
+  assert.deepEqual(quiet, { seeded: [], skipped: [], failed: [], backedUp: [], backupFolder: '' });
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -144,4 +144,85 @@ test('sentinal boot seeds the store directory and explains a missing status host
   });
   await events.ready();
   assert.ok(held.some((line) => line.includes('craft status loop not started: status panel host is missing')));
+});
+
+
+test('craft seed overwrite backs up existing files, replaces them, and does not log secrets', () => {
+  const dir = tempDir();
+  const oldSecret = 'old-vault-key-must-not-appear-in-logs-aaaaaaaa';
+  const newSecret = 'new-vault-key-must-not-appear-in-logs-bbbbbbbb';
+  const oldState = { version: 1, statusPanel: { host: 'old-host.example.test', javaPort: 25565 }, listings: {} };
+  const newState = { version: 1, statusPanel: { host: 'new-host.example.test', javaPort: 25565, kind: 'geyser' }, listings: {} };
+  const oldRcon = { version: 1, updatedBy: 'rotation-old', servers: { skyblock: { host: 'old-rcon.example.test', port: 25634, password: { v: 1 } } } };
+  const newRcon = { version: 1, updatedBy: 'pending-overwrite', servers: { skyblock: { host: 'new-rcon.example.test', port: 25634, password: { v: 2 } } } };
+  fs.writeFileSync(path.join(dir, 'nexus-craft.json'), `${JSON.stringify(oldState)}\n`, { mode: 0o600 });
+  fs.writeFileSync(path.join(dir, 'nexus-craft-rcon.json'), `${JSON.stringify(oldRcon)}\n`, { mode: 0o600 });
+  fs.writeFileSync(path.join(dir, 'nexus-craft-rcon-secret'), `${oldSecret}\n`, { mode: 0o600 });
+  const lines = [];
+  const now = new Date('2026-11-10T08:30:00.000Z');
+  const result = seedCraftFiles({
+    dir,
+    now,
+    env: {
+      SENTINAL_CRAFT_SEED_OVERWRITE: 'true',
+      SENTINAL_CRAFT_SEED_JSON: b64(`${JSON.stringify(newState)}\n`),
+      SENTINAL_CRAFT_SEED_RCON_JSON: b64(JSON.stringify(newRcon)),
+      SENTINAL_CRAFT_SEED_RCON_SECRET: newSecret
+    },
+    log: { log: (line) => lines.push(line) }
+  });
+  assert.equal(result.backupFolder, 'craft-seed-backup-2026-11-10T08-30-00-000Z');
+  assert.deepEqual(result.backedUp.sort(), ['nexus-craft-rcon-secret', 'nexus-craft-rcon.json', 'nexus-craft.json']);
+  assert.deepEqual(result.seeded.sort(), ['nexus-craft-rcon-secret', 'nexus-craft-rcon.json', 'nexus-craft.json']);
+  assert.deepEqual(result.failed, []);
+  assert.deepEqual(result.skipped, []);
+  const backupDir = path.join(dir, result.backupFolder);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(backupDir, 'nexus-craft.json'), 'utf8')).statusPanel.host, 'old-host.example.test');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(backupDir, 'nexus-craft-rcon.json'), 'utf8')).updatedBy, 'rotation-old');
+  assert.equal(fs.readFileSync(path.join(backupDir, 'nexus-craft-rcon-secret'), 'utf8').trim(), oldSecret);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'nexus-craft.json'), 'utf8')).statusPanel.host, 'new-host.example.test');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'nexus-craft-rcon.json'), 'utf8')).updatedBy, 'pending-overwrite');
+  assert.equal(fs.readFileSync(path.join(dir, 'nexus-craft-rcon-secret'), 'utf8').trim(), newSecret);
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(path.join(dir, 'nexus-craft-rcon-secret')).mode & 0o777, 0o600);
+  }
+  const logged = lines.join('\n');
+  assert.match(logged, /craft seed overwrite enabled/);
+  assert.match(logged, /craft seed backed up nexus-craft\.json, nexus-craft-rcon\.json, nexus-craft-rcon-secret to craft-seed-backup-2026-11-10T08-30-00-000Z/);
+  assert.match(logged, /craft seed replaced nexus-craft\.json/);
+  assert.match(logged, /craft seed replaced nexus-craft-rcon\.json/);
+  assert.match(logged, /craft seed replaced nexus-craft-rcon-secret/);
+  assert.match(logged, /and SENTINAL_CRAFT_SEED_OVERWRITE/);
+  for (const secret of [oldSecret, newSecret, 'old-host.example.test', 'new-host.example.test', 'old-rcon.example.test', 'new-rcon.example.test']) {
+    assert.equal(logged.includes(secret), false, `log leaked ${secret}`);
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('craft seed overwrite leaves a file in place when the new payload is invalid', () => {
+  const dir = tempDir();
+  const oldSecret = 'keep-this-vault-key-cccccccc';
+  fs.writeFileSync(path.join(dir, 'nexus-craft.json'), `${JSON.stringify({ version: 1, statusPanel: { host: 'keep-host.example.test' } })}\n`, { mode: 0o600 });
+  fs.writeFileSync(path.join(dir, 'nexus-craft-rcon-secret'), `${oldSecret}\n`, { mode: 0o600 });
+  const lines = [];
+  const result = seedCraftFiles({
+    dir,
+    env: {
+      SENTINAL_CRAFT_SEED_OVERWRITE: 'yes',
+      SENTINAL_CRAFT_SEED_JSON: Buffer.from('not json', 'utf8').toString('base64'),
+      SENTINAL_CRAFT_SEED_RCON_SECRET: oldSecret
+    },
+    log: { log: (line) => lines.push(line) }
+  });
+  assert.deepEqual(result.failed, ['nexus-craft.json']);
+  assert.deepEqual(result.seeded, ['nexus-craft-rcon-secret']);
+  assert.deepEqual(result.backedUp, ['nexus-craft-rcon-secret']);
+  assert.match(result.backupFolder, /^craft-seed-backup-/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'nexus-craft.json'), 'utf8')).statusPanel.host, 'keep-host.example.test');
+  assert.equal(fs.existsSync(path.join(dir, result.backupFolder, 'nexus-craft.json')), false);
+  const logged = lines.join('\n');
+  assert.equal(logged.includes('not json'), false);
+  assert.equal(logged.includes(oldSecret), false);
+  assert.equal(logged.includes('keep-host.example.test'), false);
+  fs.rmSync(dir, { recursive: true, force: true });
 });

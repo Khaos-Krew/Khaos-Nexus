@@ -40,8 +40,9 @@ Copy forward from Craft when that feature is in use:
 - `SENTINAL_CRAFT_SEED_JSON` — optional one-time seed. Base64 of `nexus-craft.json`. On boot, if that file is missing from the data directory, Sentinal writes it. An existing file is left untouched.
 - `SENTINAL_CRAFT_SEED_RCON_JSON` — same, for base64 of `nexus-craft-rcon.json`.
 - `SENTINAL_CRAFT_SEED_RCON_SECRET` — same, for the raw vault key written to `nexus-craft-rcon-secret`. This is not base64. It is not logged.
+- `SENTINAL_CRAFT_SEED_OVERWRITE` — optional one-shot replace. When set to `true` (or `1`, `yes`, or `on`) and any of the seed variables are present, Sentinal copies each existing seed file that will be replaced into a timestamped `craft-seed-backup-*` folder on the same volume, then writes the seed. Unset, the seeder still leaves existing files in place. Logs name the files and the backup folder only. They never include the JSON or the vault secret.
 
-The seed runs only while `SENTINAL_CRAFT_MODULE=true`. It logs the file name and that seeding happened. It does not log the JSON or the secret. Remove all three variables after the next boot shows the files were written or were already present. Leaving them set keeps the secret in the service environment.
+The seed runs only while `SENTINAL_CRAFT_MODULE=true`. It logs the file name and that seeding happened. It does not log the JSON or the secret. Remove the seed variables and `SENTINAL_CRAFT_SEED_OVERWRITE` after the next boot shows the files were written, replaced, or were already present. Leaving them set keeps the secret in the service environment.
 - `NEXUS_OWNER_USER_IDS`, `NEXUS_OPERATOR_ROLE_IDS`, `NEXUS_STAFF_ADMIN_ROLE_IDS` — same staff check Craft uses.
 - `MC_POINTS_ENABLED`, `MC_PLAYTIME_NP_ENABLED`, `MC_PLAYTIME_DRY_RUN`, `MC_SHOP_ENABLED`, `MC_SHOP_DRY_RUN`, `MC_SHOP_DELIVERY_ENABLED`, `MC_STARTER_KIT_ENABLED` — same defaults as Craft. All default off except the two dry-run flags, which default on.
 - `NEXUS_ECONOMY_URL` and `NEXUS_ECONOMY_CRAFT_TOKEN` — link, playtime, and delivery, same routes Craft calls. The craft token still cannot buy, quote, or refund.
