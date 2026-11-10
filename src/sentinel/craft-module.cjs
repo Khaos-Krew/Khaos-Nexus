@@ -6,7 +6,7 @@ const { categoryIdForInteraction } = require('../game-bots/category-gate.cjs');
 const { errorClass } = require('../game-bots/command-failure.cjs');
 const { craftIsStaff, decideCategory } = require('../craft/access.cjs');
 const { craftCommands, handleCraftInteraction, listingPayload, notifyOwner, startStatusLoop, statusLoopHoldReason } = require('../craft/bot.cjs');
-const { seedCraftFiles } = require('../craft/seed.cjs');
+const { seedCraftFiles, seedStatusServers } = require('../craft/seed.cjs');
 const { redactSecret } = require('../craft/protocol.cjs');
 const { openCraftStore } = require('../craft/store.cjs');
 const { installMcEconomyLoops } = require('../craft/mc-points-commands.cjs');
@@ -284,6 +284,7 @@ function attachCraftModule(client, options = {}) {
   const config = options.config || loadConfig();
   const store = options.store || openCraftStore(env);
   seedCraftFiles({ dir: store.dir, env, log });
+  seedStatusServers({ dir: store.dir, env, log, store });
   const context = sentinalCraftContext(client, env, store, config);
   const loops = options.loops !== false;
 

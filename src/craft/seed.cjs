@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { CraftStore } = require('./store.cjs');
 
 const SEED_FILES = Object.freeze([
   Object.freeze({ envName: 'SENTINAL_CRAFT_SEED_JSON', file: 'nexus-craft.json', kind: 'json' }),
@@ -173,4 +174,67 @@ function seedCraftFiles({ dir = '', env = process.env, log = console, now = new 
   return result;
 }
 
-module.exports = { SEED_FILES, seedCraftFiles, overwriteEnabled, backupFolderName };
+
+// Merge-only: add status-only servers to nexus-craft.json. Never writes the
+// RCON files, never replaces statusPanel or an existing server id, and never
+// logs payload values.
+function parseStatusServerSeed(raw) {
+  const decoded = decodeBase64(raw);
+  if (!decoded.ok) return { ok: false };
+  try {
+    const parsed = JSON.parse(decoded.text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok: false };
+    return { ok: true, servers: parsed };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function seedStatusServers({ dir = '', env = process.env, log = console, store = null } = {}) {
+  const raw = String(env?.SENTINAL_CRAFT_STATUS_SERVERS_JSON || '').trim();
+  const result = { added: [], skipped: [], failed: [] };
+  if (!raw) return result;
+  const payload = parseStatusServerSeed(raw);
+  if (!payload.ok) {
+    logLine(log, '[Nexus Sentinal] craft status server seed failed: payload is invalid');
+    result.failed.push('payload');
+    return result;
+  }
+  const root = String(dir || store?.dir || '').trim();
+  if (!root && !store) {
+    logLine(log, '[Nexus Sentinal] craft status server seed skipped: data directory is missing');
+    result.failed.push('payload');
+    return result;
+  }
+  let craft = store;
+  if (!craft) {
+    try {
+      craft = new CraftStore(root, env);
+    } catch {
+      logLine(log, '[Nexus Sentinal] craft status server seed skipped: data directory is missing');
+      result.failed.push('payload');
+      return result;
+    }
+  }
+  for (const [id, record] of Object.entries(payload.servers)) {
+    try {
+      const outcome = craft.addStatusServer({ ...(record && typeof record === 'object' ? record : {}), id });
+      if (outcome.added) {
+        result.added.push(outcome.server.id);
+        logLine(log, `[Nexus Sentinal] craft status server added ${outcome.server.id}`);
+      } else {
+        result.skipped.push(outcome.server.id);
+        logLine(log, `[Nexus Sentinal] craft status server left existing ${outcome.server.id} in place`);
+      }
+    } catch {
+      result.failed.push(String(id || '').trim() || 'entry');
+      logLine(log, `[Nexus Sentinal] craft status server failed for ${String(id || 'entry')}`);
+    }
+  }
+  if (result.added.length || result.skipped.length) {
+    logLine(log, '[Nexus Sentinal] craft status server seed finished; remove SENTINAL_CRAFT_STATUS_SERVERS_JSON');
+  }
+  return result;
+}
+
+module.exports = { SEED_FILES, seedCraftFiles, seedStatusServers, overwriteEnabled, backupFolderName };

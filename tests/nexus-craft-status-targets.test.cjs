@@ -16,10 +16,11 @@ const {
   staleNote
 } = require('../src/craft/status-targets.cjs');
 
-function storeOf({ panel = null, servers = [] } = {}) {
+function storeOf({ panel = null, servers = [], statusServers = [] } = {}) {
   return {
     getStatusPanel: () => panel,
-    listPublicStatus: () => servers
+    listPublicStatus: () => servers,
+    listStatusServers: () => statusServers
   };
 }
 
@@ -116,4 +117,36 @@ test('status autocomplete includes All servers and can omit it for panel host', 
   }), 'sky');
   assert.equal(servers[0].value, 'skyblock');
   assert.match(servers[0].name, /25634/);
+});
+
+
+test('status-only servers appear in All servers and are not marked stale', () => {
+  const store = storeOf({
+    panel: {
+      host: 'play.khaosnexus.com',
+      javaPort: 25614,
+      bedrockPort: 25614,
+      kind: 'geyser',
+      rconName: 'skyblock'
+    },
+    servers: [
+      { name: 'skyblock', host: '104.143.2.85', port: 25634 }
+    ],
+    statusServers: [
+      { id: 'atm10', name: 'ATM10', host: ATM10_PUBLIC_HOST, javaPort: ATM10_PUBLIC_PORT, kind: 'java' }
+    ]
+  });
+  const targets = listSavedStatusTargets(store);
+  assert.deepEqual(targets.map((target) => `${target.id}:${target.host}:${target.javaPort}:${target.source}`), [
+    'skyblock:play.khaosnexus.com:25614:status-panel',
+    `atm10:${ATM10_PUBLIC_HOST}:${ATM10_PUBLIC_PORT}:status-server`
+  ]);
+  assert.equal(targets.find((target) => target.id === 'atm10').stale, false);
+  assert.equal(staleNote(targets.find((target) => target.id === 'atm10')), '');
+  const all = resolveStatusSelection('all', store);
+  assert.equal(all.mode, 'all');
+  assert.equal(all.targets.some((target) => target.id === 'skyblock' && target.source === 'status-panel'), true);
+  assert.equal(all.targets.some((target) => target.id === 'atm10'), true);
+  const auto = autocompleteStatusHosts(store, 'atm');
+  assert.equal(auto.some((choice) => choice.value === 'atm10'), true);
 });

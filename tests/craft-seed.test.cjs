@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { Events } = require('discord.js');
-const { seedCraftFiles } = require('../src/craft/seed.cjs');
+const { seedCraftFiles, seedStatusServers } = require('../src/craft/seed.cjs');
 const { CraftStore } = require('../src/craft/store.cjs');
 const { attachCraftModule } = require('../src/sentinel/craft-module.cjs');
 
@@ -224,5 +224,87 @@ test('craft seed overwrite leaves a file in place when the new payload is invali
   assert.equal(logged.includes('not json'), false);
   assert.equal(logged.includes(oldSecret), false);
   assert.equal(logged.includes('keep-host.example.test'), false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+
+test('status server seed adds ATM10 without touching Skyblock or RCON files', () => {
+  const dir = tempDir();
+  const store = new CraftStore(dir, {});
+  store.setStatusPanel({
+    host: 'play.khaosnexus.com',
+    javaPort: 25614,
+    bedrockPort: 25614,
+    kind: 'geyser',
+    rconName: 'skyblock',
+    channelId: '1516602943670059109'
+  });
+  const rconPath = path.join(dir, 'nexus-craft-rcon.json');
+  const secretPath = path.join(dir, 'nexus-craft-rcon-secret');
+  fs.writeFileSync(rconPath, `${JSON.stringify({ version: 1, servers: { skyblock: { host: '104.143.2.85', port: 25634, password: { v: 1 } } } })}\n`, { mode: 0o600 });
+  fs.writeFileSync(secretPath, 'vault-key-must-not-be-changed-0123456789abcd\n', { mode: 0o600 });
+  const rconBefore = fs.readFileSync(rconPath, 'utf8');
+  const secretBefore = fs.readFileSync(secretPath, 'utf8');
+  const rconStat = fs.statSync(rconPath);
+  const secretStat = fs.statSync(secretPath);
+  const lines = [];
+  const payload = {
+    atm10: { name: 'ATM10', host: '172.240.47.65', javaPort: 25588, kind: 'java' }
+  };
+  const result = seedStatusServers({
+    dir,
+    store,
+    env: { SENTINAL_CRAFT_STATUS_SERVERS_JSON: b64(JSON.stringify(payload)) },
+    log: { log: (line) => lines.push(line) }
+  });
+  assert.deepEqual(result.added, ['atm10']);
+  assert.deepEqual(result.failed, []);
+  const panel = store.getStatusPanel();
+  assert.equal(panel.host, 'play.khaosnexus.com');
+  assert.equal(panel.javaPort, 25614);
+  assert.equal(panel.rconName, 'skyblock');
+  const saved = store.listStatusServers();
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].id, 'atm10');
+  assert.equal(saved[0].host, '172.240.47.65');
+  assert.equal(saved[0].javaPort, 25588);
+  assert.equal(fs.readFileSync(rconPath, 'utf8'), rconBefore);
+  assert.equal(fs.readFileSync(secretPath, 'utf8'), secretBefore);
+  assert.equal(fs.statSync(rconPath).mtimeMs, rconStat.mtimeMs);
+  assert.equal(fs.statSync(secretPath).mtimeMs, secretStat.mtimeMs);
+  const logged = lines.join('\n');
+  assert.match(logged, /craft status server added atm10/);
+  assert.match(logged, /remove SENTINAL_CRAFT_STATUS_SERVERS_JSON/);
+  assert.equal(logged.includes('172.240.47.65'), false);
+
+  const again = seedStatusServers({
+    dir,
+    store,
+    env: {
+      SENTINAL_CRAFT_STATUS_SERVERS_JSON: b64(JSON.stringify({
+        atm10: { name: 'ATM10 replaced', host: '203.0.113.10', javaPort: 25588, kind: 'java' }
+      }))
+    },
+    log: { log: (line) => lines.push(line) }
+  });
+  assert.deepEqual(again.added, []);
+  assert.deepEqual(again.skipped, ['atm10']);
+  assert.equal(store.listStatusServers()[0].host, '172.240.47.65');
+  assert.equal(store.getStatusPanel().host, 'play.khaosnexus.com');
+  assert.equal(lines.join('\n').includes('203.0.113.10'), false);
+
+  const rejected = seedStatusServers({
+    dir,
+    store,
+    env: {
+      SENTINAL_CRAFT_STATUS_SERVERS_JSON: b64(JSON.stringify({
+        other: { name: 'other', host: 'mc.example.com', javaPort: 25565, password: 'must-not-be-stored' }
+      }))
+    },
+    log: { log: (line) => lines.push(line) }
+  });
+  assert.deepEqual(rejected.failed, ['other']);
+  assert.equal(store.listStatusServers().some((item) => item.id === 'other'), false);
+  assert.equal(lines.join('\n').includes('must-not-be-stored'), false);
   fs.rmSync(dir, { recursive: true, force: true });
 });
