@@ -57,6 +57,24 @@ function listSavedStatusTargets(store) {
     });
   }
 
+  const statusList = typeof store?.listStatusServers === 'function' ? store.listStatusServers() : [];
+  for (const entry of statusList || []) {
+    const host = String(entry?.host || '').trim();
+    if (!host) continue;
+    const javaPort = Number(entry.javaPort || entry.port) || 25565;
+    const id = String(entry.id || entry.name || '').trim() || host;
+    remember({
+      id,
+      name: String(entry.name || id).trim() || id,
+      host,
+      javaPort,
+      bedrockPort: Number(entry.bedrockPort) || 19132,
+      kind: entry.kind === 'bedrock' || entry.kind === 'geyser' ? entry.kind : 'java',
+      source: 'status-server',
+      stale: false
+    });
+  }
+
   const rconList = typeof store?.listPublicStatus === 'function' ? store.listPublicStatus() : [];
   for (const entry of rconList || []) {
     const host = String(entry?.host || '').trim();

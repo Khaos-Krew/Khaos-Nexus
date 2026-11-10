@@ -50,6 +50,39 @@ function snowflake(value) {
   return /^\d{17,20}$/.test(id) ? id : '';
 }
 
+
+function readStatusServers(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const servers = {};
+  for (const [id, record] of Object.entries(raw)) {
+    try {
+      const server = normalizeStatusServer(id, record);
+      servers[server.id] = server;
+    } catch {
+      // Skip invalid rows so a bad seed entry cannot wipe the store.
+    }
+  }
+  return servers;
+}
+
+function normalizeStatusServer(id, record = {}) {
+  if (record && typeof record === 'object' && (record.password != null && String(record.password) !== '')) {
+    const error = new Error('Status servers cannot include an RCON password.');
+    error.code = 'STATUS_SERVER_PASSWORD';
+    throw error;
+  }
+  const key = normalizeServerName(id || record.id || record.name);
+  const host = String(record.host || '').trim().slice(0, 255);
+  if (!host || host.includes('://') || host.includes('/')) throw new Error('Status server host is invalid.');
+  const javaPort = Number(record.javaPort || record.port) || 0;
+  if (!Number.isInteger(javaPort) || javaPort < 1 || javaPort > 65535) throw new Error('Status server port is invalid.');
+  const bedrockRaw = Number(record.bedrockPort);
+  const bedrockPort = Number.isInteger(bedrockRaw) && bedrockRaw >= 1 && bedrockRaw <= 65535 ? bedrockRaw : 19132;
+  const kind = record.kind === 'bedrock' || record.kind === 'geyser' ? record.kind : 'java';
+  const name = String(record.name || key).trim().slice(0, 80) || key;
+  return { id: key, name, host, javaPort, bedrockPort, kind };
+}
+
 class CraftStore {
   constructor(root, env = {}) {
     this.dir = root ? path.resolve(String(root)) : runtimeDataDir(env);
@@ -60,7 +93,7 @@ class CraftStore {
   }
 
   emptyState() {
-    return { version: VERSION, boardChannelId: '', statusPanel: null, listings: {}, applications: {} };
+    return { version: VERSION, boardChannelId: '', statusPanel: null, statusServers: {}, listings: {}, applications: {} };
   }
 
   readState() {
@@ -71,6 +104,7 @@ class CraftStore {
         version: VERSION,
         boardChannelId: snowflake(parsed.boardChannelId),
         statusPanel: parsed.statusPanel && typeof parsed.statusPanel === 'object' ? parsed.statusPanel : null,
+        statusServers: readStatusServers(parsed.statusServers),
         listings: parsed.listings && typeof parsed.listings === 'object' ? parsed.listings : {},
         applications: parsed.applications && typeof parsed.applications === 'object' ? parsed.applications : {}
       };
@@ -84,6 +118,7 @@ class CraftStore {
       version: VERSION,
       boardChannelId: snowflake(state.boardChannelId),
       statusPanel: state.statusPanel || null,
+      statusServers: readStatusServers(state.statusServers),
       listings: state.listings || {},
       applications: state.applications || {},
       updatedAt: new Date().toISOString()
@@ -217,6 +252,27 @@ class CraftStore {
     this.writeState(state);
     notifyPublicServersChanged('craft-panel');
     return state.statusPanel;
+  }
+
+  listStatusServers() {
+    return Object.values(this.readState().statusServers || {}).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  addStatusServer(record, { replace = false } = {}) {
+    const server = normalizeStatusServer(record?.id || record?.name, record || {});
+    const state = this.readState();
+    state.statusServers = state.statusServers || {};
+    const existing = state.statusServers[server.id];
+    if (existing && !replace) {
+      return { added: false, server: existing };
+    }
+    if (!existing && Object.keys(state.statusServers).length >= 20) {
+      throw new Error('Too many status servers are saved.');
+    }
+    state.statusServers[server.id] = server;
+    this.writeState(state);
+    notifyPublicServersChanged('craft-status-server');
+    return { added: true, server };
   }
 
   readRcon() {
