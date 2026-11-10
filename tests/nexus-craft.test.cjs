@@ -480,3 +480,126 @@ test('Craft slash commands stay inside the Minecraft bot', () => {
   }
   for (const command of commands) walk(command, command.name);
 });
+
+test('/mc status host is optional with autocomplete of saved servers', () => {
+  const { craftCommands } = require('../src/craft/bot.cjs');
+  const commands = craftCommands({}).map((command) => command.toJSON());
+  const mc = commands.find((command) => command.name === 'mc');
+  const status = mc.options.find((option) => option.name === 'status');
+  const host = status.options.find((option) => option.name === 'host');
+  assert.equal(host.required, false);
+  assert.equal(host.autocomplete, true);
+  assert.match(host.description, /All servers|saved/i);
+  const panel = mc.options.find((option) => option.name === 'panel');
+  const panelHost = panel.options.find((option) => option.name === 'host');
+  assert.equal(panelHost.autocomplete, true);
+  const mcrcon = commands.find((command) => command.name === 'mcrcon');
+  const setup = mcrcon.options.find((option) => option.name === 'setup');
+  const server = setup.options.find((option) => option.name === 'server');
+  assert.equal(server.autocomplete, true);
+});
+
+test('/mc status replies with all saved servers or a typed address', async () => {
+  const { handleCraftAutocomplete, handleCraftInteraction } = require('../src/craft/bot.cjs');
+  const probes = [];
+  const store = {
+    getStatusPanel: () => ({
+      host: 'play.khaosnexus.com',
+      javaPort: 25614,
+      bedrockPort: 19132,
+      kind: 'geyser',
+      rconName: 'skyblock'
+    }),
+    listPublicStatus: () => [
+      { name: 'skyblock', host: 'play.khaosnexus.com', port: 25614 },
+      { name: 'atm10', host: '172.240.47.65', port: 25588 }
+    ]
+  };
+  const context = {
+    env: { NEXUS_CRAFT_DISCORD_CATEGORY_ID: CATEGORY },
+    store,
+    config: {},
+    probeServerStatus: async (input) => {
+      probes.push(input);
+      const online = input.host === 'play.khaosnexus.com';
+      return {
+        kind: input.kind,
+        host: input.host,
+        javaPort: input.javaPort,
+        bedrockPort: input.bedrockPort,
+        java: online
+          ? { offline: false, version: '1.21.1', online: 2, max: 20, latencyMs: 12, motd: 'Khaos' }
+          : { offline: true, error: 'timeout' }
+      };
+    }
+  };
+
+  function chat(sub, { host, autocomplete = false, focused = '' } = {}) {
+    const replies = [];
+    const choices = [];
+    const interaction = {
+      commandName: 'mc',
+      customId: '',
+      user: { id: OWNER },
+      guildId: '100000000000000001',
+      channelId: '100000000000000002',
+      channel: { parentId: CATEGORY, type: 0 },
+      deferred: false,
+      replied: false,
+      options: {
+        getSubcommand: () => sub,
+        getSubcommandGroup: () => null,
+        getString: (name) => (name === 'host' ? host : name === 'edition' ? 'java' : ''),
+        getInteger: () => null,
+        getBoolean: () => false,
+        getFocused: () => ({ name: 'host', value: focused })
+      },
+      isChatInputCommand: () => !autocomplete,
+      isAutocomplete: () => autocomplete,
+      isButton: () => false,
+      isModalSubmit: () => false,
+      deferReply: async () => {
+        interaction.deferred = true;
+      },
+      editReply: async (payload) => {
+        replies.push(payload);
+      },
+      reply: async (payload) => {
+        replies.push(payload);
+        interaction.replied = true;
+      },
+      respond: async (payload) => {
+        choices.push(...payload);
+      },
+      replies,
+      choices
+    };
+    return interaction;
+  }
+
+  const all = chat('status', { host: '' });
+  await handleCraftInteraction(all, context);
+  assert.equal(all.deferred, true);
+  assert.equal(probes.length, 2);
+  const allText = JSON.stringify(all.replies[0]);
+  assert.match(allText, /play\.khaosnexus\.com:25614/);
+  assert.match(allText, /172\.240\.47\.65:25588/);
+  assert.match(allText, /ATM10/);
+  assert.match(allText, /Online|2 \/ 20/);
+
+  probes.length = 0;
+  const raw = chat('status', { host: 'mc.example.com:25565' });
+  await handleCraftInteraction(raw, context);
+  assert.deepEqual(probes.map((item) => `${item.host}:${item.javaPort}`), ['mc.example.com:25565']);
+  assert.equal(Array.isArray(raw.replies[0].embeds), true);
+
+  const emptyStore = { getStatusPanel: () => null, listPublicStatus: () => [] };
+  const empty = chat('status', { host: '' });
+  await handleCraftInteraction(empty, { ...context, store: emptyStore });
+  assert.match(String(empty.replies[0].content), /No servers are saved/);
+
+  const autocomplete = chat('status', { autocomplete: true, focused: 'play' });
+  await handleCraftAutocomplete(autocomplete, context);
+  assert.equal(autocomplete.choices.some((choice) => choice.value === 'skyblock'), true);
+  assert.equal(autocomplete.choices.some((choice) => choice.value === 'all' || choice.name === 'All servers'), false);
+});

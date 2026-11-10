@@ -273,3 +273,34 @@ test('staff-only Apply fallback stays ephemeral when the owner DM fails', async 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('all-servers status embed lists online, players, version, and ping in one embed', () => {
+  const { buildAllServersStatusEmbed } = require('../src/craft/embeds.cjs');
+  const body = buildAllServersStatusEmbed({
+    results: [
+      {
+        target: { name: 'skyblock', host: 'play.khaosnexus.com', javaPort: 25614 },
+        snapshot: {
+          kind: 'java',
+          java: { offline: false, version: '1.21.1', online: 3, max: 20, latencyMs: 18, motd: 'Khaos' }
+        }
+      },
+      {
+        target: { name: 'atm10', host: '172.240.47.65', javaPort: 25588 },
+        snapshot: { kind: 'java', java: { offline: true, error: 'timeout' } },
+        staleNote: 'Saved address looks like the old ATM10 join address.'
+      }
+    ],
+    notes: ['Saved address `172.240.47.65:25588` looks like the old ATM10 join address.']
+  });
+  assert.equal(body.embeds.length, 1);
+  const text = JSON.stringify(body);
+  assert.match(text, /skyblock/);
+  assert.match(text, /play\.khaosnexus\.com:25614/);
+  assert.match(text, /3 \/ 20|Online/);
+  assert.match(text, /1\.21\.1/);
+  assert.match(text, /18 ms|18ms|ping|latency/i);
+  assert.match(text, /Offline/);
+  assert.match(text, /ATM10/);
+  assert.equal(/rcon/i.test(text), false);
+});
