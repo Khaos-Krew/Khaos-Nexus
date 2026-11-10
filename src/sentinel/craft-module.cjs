@@ -223,7 +223,11 @@ async function safeReply(interaction, payload) {
 async function handleRealmRepost(interaction, context) {
   const env = context.env || process.env;
   const categoryId = await categoryIdForInteraction(interaction);
-  const gate = decideCategory(env, categoryId);
+  const gate = decideCategory(env, categoryId, {
+    channelId: interaction.channelId || interaction.channel?.id,
+    interaction,
+    config: context.config || {}
+  });
   if (!gate.allow) {
     await safeReply(interaction, ephemeral(gate.message));
     return;

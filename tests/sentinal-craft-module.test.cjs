@@ -287,10 +287,15 @@ test('realm repost republishes open listings and leaves the channel list alone',
   assert.match(denied.replies[0].content, /Only Nexus staff/);
   assert.equal(denied.layoutCalls, 0);
 
-  const outside = chat('realm', 'repost', { staff: true, category: '2000000000000000002' });
-  await handleSentinalCraftInteraction(outside, { env, store, config: { discord: {} }, client });
-  assert.match(outside.replies[0].content, /category/);
-  assert.equal(outside.deferred, false);
+  const outsideMember = chat('realm', 'repost', { userId: STRANGER, staff: false, category: '2000000000000000002' });
+  await handleSentinalCraftInteraction(outsideMember, { env, store, config: { discord: {} }, client });
+  assert.match(outsideMember.replies[0].content, /category/);
+  assert.equal(outsideMember.deferred, false);
+
+  const staffOutside = chat('realm', 'repost', { staff: true, category: '2000000000000000002' });
+  await handleSentinalCraftInteraction(staffOutside, { env, store, config: { discord: {} }, client });
+  assert.equal(staffOutside.deferred, true);
+  assert.doesNotMatch(String(staffOutside.replies[0]?.content || ''), /category/);
 });
 
 test('sentinal shop and starter hooks replace the Craft pointer', async () => {

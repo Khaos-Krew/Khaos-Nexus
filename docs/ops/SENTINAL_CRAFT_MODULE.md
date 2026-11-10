@@ -10,8 +10,8 @@ Sentinal and Craft already share the economy Postgres database. Realm listings, 
 
 | Craft | Sentinal | Who |
 | --- | --- | --- |
-| `/craft help` | `/craft help` | Everyone in the Craft category |
-| `/mc status` | `/mc status` | Everyone in the Craft category |
+| `/craft help` | `/craft help` | Everyone in the Craft category, in a `SENTINAL_CRAFT_ALLOWED_CHANNEL_IDS` channel, or staff (Administrator, Manage Guild, or a Nexus Operator+ role) in any channel |
+| `/mc status` | `/mc status` | Same location gate as `/craft help` |
 | `/mc panel` | `/mc panel` | Staff |
 | `/mc players`, `/mc say`, `/mc whitelist add\|remove\|list`, `/mc kick`, `/mc cmd` | same | Staff. Same owner, Administrator, operator-role, and staff-admin check as Craft |
 | `/mc link start\|confirm\|status`, `/mc unlink` | same | Registered only when `MC_POINTS_ENABLED=true` |
@@ -28,7 +28,9 @@ Sentinal and Craft already share the economy Postgres database. Realm listings, 
 Required to turn the module on:
 
 - `SENTINAL_CRAFT_MODULE=true` — master switch. Unset, empty, or `false` leaves the module off.
-- `NEXUS_CRAFT_DISCORD_CATEGORY_ID` — commands and buttons, except Approve and Deny, only run in this category. Same fail-closed message as Craft when it is missing.
+- `NEXUS_CRAFT_DISCORD_CATEGORY_ID` — required. The Craft category stays allowed for everyone. Same fail-closed message as Craft when it is missing.
+- `SENTINAL_CRAFT_ALLOWED_CHANNEL_IDS` — optional comma- or space-separated channel ids (for example the guild `#admin-commands` channel) where the same commands may also run. Approve and Deny buttons are unchanged.
+- Staff location bypass — users with Administrator, Manage Guild, or the same Nexus Operator+ staff check Craft already uses may run `/mc`, `/craft`, `/realm`, and `/mcrcon` in any channel. `/mcrcon` and other staff-only commands still require that staff check; the location bypass does not loosen those permission checks.
 - Sentinal's existing guild id (`DISCORD_GUILD_ID` or `NEXUS_DISCORD_GUILD_ID`) and bot token. This module does not read `NEXUS_CRAFT_TOKEN`.
 
 Copy forward from Craft when that feature is in use:
