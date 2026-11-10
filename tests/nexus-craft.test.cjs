@@ -348,6 +348,103 @@ test('category gate says not configured until the category id is set', async () 
   assert.match(String(replies[0]?.content || ''), /NEXUS_CRAFT_DISCORD_CATEGORY_ID/);
 });
 
+test('category gate allows staff, Manage Guild, and allowlisted channels outside the category', () => {
+  const env = { NEXUS_CRAFT_DISCORD_CATEGORY_ID: CATEGORY };
+  const adminChannel = '1541584820403179660';
+  const outsideCat = '2000000000000000002';
+  const member = { user: { id: STRANGER }, memberPermissions: { has: () => false } };
+  const blocked = decideCategory(env, outsideCat, { channelId: adminChannel, interaction: member, config: { discord: {} } });
+  assert.equal(blocked.allow, false);
+  assert.equal(blocked.code, 'outside');
+  assert.match(blocked.message, /Discord category/);
+
+  const allowlisted = decideCategory(
+    { ...env, SENTINAL_CRAFT_ALLOWED_CHANNEL_IDS: ` ${adminChannel}, 123 ` },
+    outsideCat,
+    { channelId: adminChannel, interaction: member, config: { discord: {} } }
+  );
+  assert.equal(allowlisted.allow, true);
+  assert.equal(allowlisted.code, 'allowlist');
+
+  const manage = decideCategory(env, outsideCat, {
+    channelId: '3000000000000000003',
+    interaction: {
+      user: { id: STRANGER },
+      memberPermissions: { has: (bit) => bit === PermissionFlagsBits.ManageGuild }
+    },
+    config: { discord: {} }
+  });
+  assert.equal(manage.allow, true);
+  assert.equal(manage.code, 'staff');
+
+  const operatorRole = '1550000000000000001';
+  const operator = decideCategory(env, outsideCat, {
+    channelId: '3000000000000000003',
+    interaction: {
+      user: { id: STRANGER },
+      memberPermissions: { has: () => false },
+      member: { roles: [{ id: operatorRole }] }
+    },
+    config: { discord: { operatorRoleIds: [operatorRole] } }
+  });
+  assert.equal(operator.allow, true);
+  assert.equal(operator.code, 'staff');
+
+  const admin = decideCategory(env, outsideCat, {
+    interaction: {
+      user: { id: STRANGER },
+      memberPermissions: { has: (bit) => bit === PermissionFlagsBits.Administrator }
+    },
+    config: { discord: {} }
+  });
+  assert.equal(admin.allow, true);
+  assert.equal(admin.code, 'staff');
+
+  const stillUnset = decideCategory({}, outsideCat, {
+    interaction: {
+      user: { id: STRANGER },
+      memberPermissions: { has: (bit) => bit === PermissionFlagsBits.Administrator }
+    },
+    config: { discord: {} }
+  });
+  assert.equal(stillUnset.allow, false);
+  assert.equal(stillUnset.code, 'unset');
+});
+
+test('mcrcon stays staff-only even in an allowlisted channel outside the category', async () => {
+  const adminChannel = '1541584820403179660';
+  const replies = [];
+  const interaction = {
+    guildId: '1016059608789434408',
+    channelId: adminChannel,
+    channel: { parentId: '2000000000000000002', type: 0 },
+    commandName: 'mcrcon',
+    user: { id: STRANGER },
+    memberPermissions: { has: () => false },
+    replied: false,
+    deferred: false,
+    isChatInputCommand: () => true,
+    isAutocomplete: () => false,
+    isButton: () => false,
+    isModalSubmit: () => false,
+    options: {
+      getSubcommand: () => 'status',
+      getSubcommandGroup: () => null,
+      getString: () => 'skyblock'
+    },
+    reply: async (payload) => {
+      replies.push(payload);
+      interaction.replied = true;
+    }
+  };
+  await handleCraftInteraction(interaction, {
+    env: { NEXUS_CRAFT_DISCORD_CATEGORY_ID: CATEGORY, SENTINAL_CRAFT_ALLOWED_CHANNEL_IDS: adminChannel },
+    store: {},
+    config: { discord: {} }
+  });
+  assert.match(String(replies[0]?.content || ''), /Only Nexus staff/);
+});
+
 test('help text covers setup and the edition matrix', () => {
   const help = craftHelpText();
   assert.ok(help.length <= 1900);

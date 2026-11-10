@@ -651,7 +651,7 @@ async function handleCraftInteraction(interaction, context) {
   const config = context.config || {};
   if (typeof interaction.isAutocomplete === 'function' && interaction.isAutocomplete()) {
     const categoryId = await categoryIdForInteraction(interaction);
-    const gate = decideCategory(env, categoryId);
+    const gate = decideCategory(env, categoryId, { channelId: interaction.channelId || interaction.channel?.id, interaction, config });
     if (!gate.allow) {
       if (typeof interaction.respond === 'function') await interaction.respond([]);
       return;
@@ -663,7 +663,7 @@ async function handleCraftInteraction(interaction, context) {
   const decisionButton = /^craft:realm:(approve|deny):([a-f0-9]{12})$/.exec(customId);
   if (!decisionButton) {
     const categoryId = await categoryIdForInteraction(interaction);
-    const gate = decideCategory(env, categoryId);
+    const gate = decideCategory(env, categoryId, { channelId: interaction.channelId || interaction.channel?.id, interaction, config });
     if (!gate.allow) {
       if (!interaction.replied && !interaction.deferred) await interaction.reply(ephemeral(gate.message));
       return;
