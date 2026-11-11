@@ -26,6 +26,7 @@ const { GATE_OFF, COSMETIC_FOOTER, coinShopMemberText, memberReceipt } = require
 const { isCoinShopAdmin } = require('../economy-worker/coin-shop-staff.cjs');
 const { rolesFromSubject } = require('../economy-worker/ark-staff-auth.cjs');
 const { reconcilePanel } = require('./staff-workspace.cjs');
+const { isSkyblockShopGuild } = require('./skyblock-store-extension.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.coin.shop.ui');
 const sessions = new Map();
@@ -456,6 +457,8 @@ async function handleCoinShopInteraction(interaction, { economyClient, backend, 
   const cosmetics = backend || new BackendClient(config);
   try {
     if (interaction.isChatInputCommand?.()) {
+      // Skyblock store guilds own /shop there (skyblock-store-extension.cjs).
+      if (interaction.commandName === 'shop' && isSkyblockShopGuild(interactionGuildId(interaction))) return false;
       if (interaction.commandName === 'shop') return openShop(interaction, economy, cosmetics, artRoot);
       if (interaction.commandName === 'shopadmin') {
         const sub = interaction.options?.getSubcommand?.(false);
