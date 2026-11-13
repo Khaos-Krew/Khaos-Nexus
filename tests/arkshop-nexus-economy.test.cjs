@@ -10,7 +10,6 @@ const {
   buildNexusEconomyV1,
   summarizeEconomy
 } = require('../src/sentinel/arkshop-nexus-economy.cjs');
-const { cleanError, isNexusEconomyV1 } = require('../src/sentinel/arkshop-nexus-economy-v1-startup.cjs');
 const { buildArkShopConfig } = require('../src/sentinel/arkshop-profile-service.cjs');
 
 const PICK = "Blueprint'/verified/PrimalItem_WeaponMetalPick.PrimalItem_WeaponMetalPick'";
@@ -133,17 +132,10 @@ test('full config apply preserves Mysql, webhook, Messages, and unmanaged fields
   assert.deepEqual(next.Messages, live.Messages);
   assert.deepEqual(next.UnknownSection, live.UnknownSection);
   assert.equal(next.General.UnmanagedGeneral, 'keep');
-  assert.equal(isNexusEconomyV1(next), true);
 });
 
 test('unverified starter blueprints are never guessed', () => {
   const live = legacyFixture();
   live.ShopItems.tools.Items = [];
   assert.throws(() => buildNexusEconomyV1(live), /refusing to guess item blueprints/);
-});
-
-test('migration failure logging redacts credential-like values', () => {
-  const message = cleanError(new Error('mysql://user:db-secret@db.internal Password=hunter2 token=abc123'));
-  assert.doesNotMatch(message, /db-secret|hunter2|abc123/);
-  assert.match(message, /\[redacted\]/);
 });

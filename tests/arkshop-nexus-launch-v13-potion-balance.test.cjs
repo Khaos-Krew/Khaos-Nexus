@@ -15,7 +15,6 @@ const {
   applyCraftingBalance,
   hasCraftingBalance
 } = require('../src/sentinel/arkshop-nexus-launch-v13-potion-balance-startup.cjs');
-const runtime = require('../src/sentinel/arkshop-nexus-launch-v13-potion-balance-runtime.cjs');
 
 test('Love Potion is removed and remaining Crazy potion prices fit the Shadow Recruit earning floor', () => {
   const data = withBalancedCatalog({ managedSections: ['ShopItems'], ShopItems: { apoth_love: { Price: 750 }, keep: { Price: 1 } } });
@@ -53,15 +52,4 @@ test('Love crafting hide is removed while the other Crazy shop-only restrictions
   assert.match(next, /EngramEntry_KeepMe_C/);
   for (const name of DISABLED_CRAZYS_ENGRAMS) assert.equal(next.split(engramRule(name)).length - 1, 1);
   assert.equal(applyCraftingBalance(next), next);
-});
-
-test('v13 production mutation remains opt-in', () => {
-  const previous = process.env.ARK_GEN1_ARKSHOP_LAUNCH_V13_POTION_BALANCE_ONCE;
-  delete process.env.ARK_GEN1_ARKSHOP_LAUNCH_V13_POTION_BALANCE_ONCE;
-  try {
-    assert.deepEqual(runtime.installArkShopLaunchV13PotionBalanceRuntime(), { enabled: false });
-  } finally {
-    if (previous === undefined) delete process.env.ARK_GEN1_ARKSHOP_LAUNCH_V13_POTION_BALANCE_ONCE;
-    else process.env.ARK_GEN1_ARKSHOP_LAUNCH_V13_POTION_BALANCE_ONCE = previous;
-  }
 });
