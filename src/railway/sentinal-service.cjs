@@ -13,7 +13,7 @@ const arkShopMysqlRetired = isArkShopMysqlRetired();
 const { resolveSharedListenerPorts } = require('../sentinel/listener-ports.cjs');
 const listeners = resolveSharedListenerPorts(process.env);
 if (listeners.movedBackend) {
-  console.warn(listeners.warning);
+  console.log(listeners.warning);
   process.env.NEXUS_BACKEND_HOST = '127.0.0.1';
   process.env.NEXUS_BACKEND_PORT = listeners.backendPort;
   process.env.NEXUS_BACKEND_URL = `http://127.0.0.1:${listeners.backendPort}`;
