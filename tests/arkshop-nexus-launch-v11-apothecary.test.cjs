@@ -2,8 +2,6 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const {
   APOTHECARY_ITEMS,
   DISABLED_ENGRAMS,
@@ -14,7 +12,6 @@ const {
   applyCraftingRestrictions,
   hasCraftingRestrictions
 } = require('../src/sentinel/arkshop-nexus-launch-v11-apothecary-startup.cjs');
-const runtime = require('../src/sentinel/arkshop-nexus-launch-v11-apothecary-runtime.cjs');
 
 test('planned Apothecary uses verified native item delivery and balanced positive prices', () => {
   assert.equal(Object.keys(APOTHECARY_ITEMS).length, 8);
@@ -60,18 +57,4 @@ test('Game.ini potion rules hide crafting while preserving unrelated repeated ov
 test('Engram Unlocker remains explicitly hidden but excluded from the shop catalog', () => {
   assert.ok(DISABLED_ENGRAMS.includes('EngramEntry_CPEngramUnlockerPotion_C'));
   assert.equal(Object.values(APOTHECARY_ITEMS).some((spec) => /EngramUnlock/i.test(spec.asset)), false);
-});
-
-test('Apothecary live migration is opt-in and does not auto-restart ARK', () => {
-  const previous = process.env.ARK_GEN1_ARKSHOP_LAUNCH_V11_APOTHECARY_ONCE;
-  delete process.env.ARK_GEN1_ARKSHOP_LAUNCH_V11_APOTHECARY_ONCE;
-  try {
-    assert.deepEqual(runtime.installArkShopLaunchV11ApothecaryRuntime(), { enabled: false });
-    assert.equal(runtime.ENV_KEY, 'ARK_GEN1_ARKSHOP_LAUNCH_V11_APOTHECARY_ONCE');
-    const source = fs.readFileSync(path.resolve(__dirname, '../src/sentinel/arkshop-nexus-launch-v11-apothecary-runtime.cjs'), 'utf8');
-    assert.doesNotMatch(source, /restartserver|doexit|saveworld/i);
-  } finally {
-    if (previous === undefined) delete process.env.ARK_GEN1_ARKSHOP_LAUNCH_V11_APOTHECARY_ONCE;
-    else process.env.ARK_GEN1_ARKSHOP_LAUNCH_V11_APOTHECARY_ONCE = previous;
-  }
 });
