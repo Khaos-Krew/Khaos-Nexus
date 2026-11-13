@@ -35,7 +35,7 @@ const required = [
   'src/sentinel/game-command-ownership.cjs', 'src/sentinel/ascended-runtime.cjs', 'src/sentinel/cephalon-bot.cjs', 'src/sentinel/sanctuary-suite.cjs', 'src/sentinel/sanctuary-events.cjs', 'src/sentinel/sanctuary-bot.cjs',
   'src/sentinel/bot.cjs', 'src/sentinel/entry.cjs', 'src/sentinel/temp-voice.cjs', 'src/sentinel/temp-voice-extension.cjs', 'src/sentinel/pokemon-go-extension.cjs',
   'src/sentinel/pokemon-go.cjs', 'src/sentinel/pokemon-go-event-ui.cjs', 'src/sentinel/discord-time.cjs',
-  'src/sentinel/event-feed.cjs', 'src/sentinel/event-feed-extension.cjs', 'src/sentinel/role-menu.cjs', 'src/sentinel/role-menu-extension.cjs',
+  'src/sentinel/event-feed.cjs', 'src/sentinel/role-menu.cjs', 'src/sentinel/role-menu-extension.cjs',
   'src/sentinel/admin-pairing.cjs', 'src/sentinel/admin-pairing-extension.cjs', 'src/sentinel/moderation-commands.cjs', 'src/sentinel/moderation-extension.cjs',
   'src/sentinel/commands.cjs', 'src/sentinel/friendly-commands.cjs', 'src/sentinel/action-formatters.cjs',
   'src/sentinel/admin-ops.cjs', 'src/sentinel/admin-server.cjs', 'src/sentinel/discord-admin-discovery.cjs', 'src/sentinel/module-inspector.cjs',
