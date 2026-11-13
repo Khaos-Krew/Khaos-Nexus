@@ -335,15 +335,19 @@ function installAboutExtension() {
   Client.prototype.login = function nexusAboutLogin(...args) {
     this.once(Events.ClientReady, () => {
       let running = false;
+      let lastSkipped = '';
       const run = async (reason) => {
         if (running) return;
         running = true;
         try {
           const result = await refreshAboutPanel(this, config);
           if (result.skipped) {
-            console.warn(`[Nexus Sentinal] about (${reason}) skipped: ${result.skipped}`);
+            // Folded or hidden on purpose: say so once, not every refresh.
+            if (result.skipped !== lastSkipped) console.log(`[Nexus Sentinal] about (${reason}) skipped: ${result.skipped}`);
+            lastSkipped = result.skipped;
             return;
           }
+          lastSkipped = '';
           console.log(`[Nexus Sentinal] about (${reason}): channel=${result.channelId} channelCreated=${result.channelCreated} channelMoved=${result.channelMoved} topicUpdated=${result.topicUpdated} permissionsUpdated=${result.permissionsUpdated} inviteCreated=${result.inviteCreated} panelCreated=${result.panelCreated} panelUpdated=${result.panelUpdated} duplicatesRemoved=${result.duplicatesRemoved} pinned=${result.pinned}`);
         } catch (error) {
           console.warn(`[Nexus Sentinal] about (${reason}) unavailable: ${String(error?.message || error).slice(0, 240)}`);

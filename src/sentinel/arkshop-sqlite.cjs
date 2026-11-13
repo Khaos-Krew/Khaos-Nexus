@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { DatabaseSync } = require('node:sqlite');
+const { DatabaseSync } = require('../shared/node-sqlite.cjs').loadNodeSqlite();
 const SftpClient = require('ssh2-sftp-client');
 const { sftpSettingsFromEnv, remotePath } = require('./ark-sftp-config.cjs');
 
