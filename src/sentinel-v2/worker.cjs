@@ -24,6 +24,7 @@ const { ArkRconReadAdapter } = require('./ark-rcon-read-adapter.cjs');
 const { ArkRconObservationEvidence } = require('./ark-rcon-observation-evidence.cjs');
 const { ArkRconObservationWindow } = require('./ark-rcon-observation-window.cjs');
 const { ArkRconObservationRuntime } = require('./ark-rcon-observation-runtime.cjs');
+const { arkEnabled } = require('../shared/ark-switch.cjs');
 
 async function startWorker() {
   const base = loadSentinelConfig();
@@ -87,7 +88,8 @@ async function startWorker() {
 
   const restoredIncidents = await incidents.hydrate();
 
-  registerArkHealthJob(scheduler, {
+  const arkOn = arkEnabled();
+  if (arkOn) registerArkHealthJob(scheduler, {
     adapter: arkHealth,
     servers: () => arkRegistry.list({ includeDisabled: false }),
     intervalMs: 300000,
@@ -98,7 +100,7 @@ async function startWorker() {
   if (economyPurchases) registerEconomyPurchaseJobs(scheduler, economyPurchases);
 
   let arkShadowAcceptance = null;
-  if (config.arkShadowEnabled) {
+  if (arkOn && config.arkShadowEnabled) {
     const since = new Date(Date.now() - (config.arkShadowHistoryHours * 60 * 60 * 1000)).toISOString();
     arkShadowAcceptance = await arkShadowRuntime.start({
       since,
@@ -108,7 +110,7 @@ async function startWorker() {
   }
 
   let arkRconShadowAcceptance = null;
-  if (config.arkRconShadowEnabled) {
+  if (arkOn && config.arkRconShadowEnabled) {
     const since = new Date(Date.now() - (config.arkRconShadowHistoryHours * 60 * 60 * 1000)).toISOString();
     arkRconShadowAcceptance = await arkRconObservationRuntime.start({
       since,
@@ -132,7 +134,8 @@ async function startWorker() {
     actionControllerReady: true,
     economyPurchaseRuntime: economyPurchases ? economyPurchases.status() : { projectorEnabled: false, executionEnabled: false, executionAuthorized: false, authorizationReason: 'database-unavailable' },
     arkRegistryReadOnly: true,
-    arkHealthJobRegistered: true,
+    arkRuntimeEnabled: arkOn,
+    arkHealthJobRegistered: arkOn,
     arkShadowEnabled: config.arkShadowEnabled,
     arkShadowHistoryRestored: arkShadowAcceptance?.samples || 0,
     arkShadowRetirementEligible: arkShadowAcceptance?.eligible === true,

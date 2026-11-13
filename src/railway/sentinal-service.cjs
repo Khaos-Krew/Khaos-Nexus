@@ -9,6 +9,8 @@ const { ArkRconClient, arkServerFromEnv } = require('../sentinel/ark-rcon.cjs');
 const { syncArkShopMysqlIfRequested } = require('../sentinel/arkshop-startup-sync.cjs');
 const { isArkShopMysqlRetired, databaseModeFromEnv, databaseStatus } = require('../sentinel/arkshop-database.cjs');
 const arkShopMysqlRetired = isArkShopMysqlRetired();
+const { arkEnabled } = require('../shared/ark-switch.cjs');
+const arkRuntimeEnabled = arkEnabled();
 
 const { resolveSharedListenerPorts } = require('../sentinel/listener-ports.cjs');
 const listeners = resolveSharedListenerPorts(process.env);
@@ -31,7 +33,7 @@ if (hosted.secretState.failed.length) {
 console.log('[Nexus Sentinal] starting Railway composite runtime');
 
 const controlledApiTestRequest = String(process.env.ARK_GEN1_CONTROLLED_API_TEST_REQUEST || '').trim();
-if (controlledApiTestRequest) {
+if (controlledApiTestRequest && arkRuntimeEnabled) {
   const { runControlledApiRestartTest } = require('../sentinel/ark-controlled-api-restart-test.cjs');
   setTimeout(() => void runControlledApiRestartTest(controlledApiTestRequest).catch((error) => {
     console.error(`[Nexus Sentinal] Controlled API test runner error: ${String(error?.message || error).slice(0, 700)}`);
@@ -75,7 +77,11 @@ void require('../sentinel/arkshop-map2-sqlite-migration.cjs').runIfRequested({ s
   })
   .catch((error) => console.warn(`[Nexus Sentinal] Astraeos ArkShop SQLite-to-MySQL migration blocked: ${String(error?.code || error?.message || error).replace(/[\r\n]+/g, ' ').slice(0, 500)}`));
 
-if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
+if (!arkRuntimeEnabled) {
+  console.log('[Nexus Sentinal] ARK startup probes skipped: NEXUS_ARK_ENABLED=false.');
+}
+
+if (arkRuntimeEnabled && String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
   void applyBaselineIfRequested({ prefix: 'ARK_GEN1', stampDirectory: '/app/data' })
     .then((result) => {
       if (result.skipped) {
@@ -197,7 +203,7 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
 // Read-only identity discovery for the configured second ARK service. This deliberately
 // runs even while ARK_MAP2_ENABLED is false so a stopped server can be identified
 // from its SFTP layout and logs before any management or migration is enabled.
-if (String(process.env.ARK_MAP2_SFTP_HOST || '').trim()) {
+if (arkRuntimeEnabled && String(process.env.ARK_MAP2_SFTP_HOST || '').trim()) {
   void inspectSftpLayout('ARK_MAP2')
     .then((layout) => {
       console.log(`[Nexus Sentinal] ARK MAP2 SFTP layout: cwd=${layout.cwd} configuredRoot=${layout.configuredRoot} dirs=${layout.directories.join(',') || '(none)'} shooterGame=${layout.shooterGameCandidates.join(',') || '(none)'}`);
