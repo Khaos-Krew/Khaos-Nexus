@@ -3,6 +3,7 @@
 const SftpClient = require('ssh2-sftp-client');
 const { probeSshExecHash, checkCacheMirrors } = require('./ark-sftp-diagnostic.cjs');
 const { sftpSettingsFromEnv } = require('./ark-sftp-config.cjs');
+const { arkEnabled } = require('../shared/ark-switch.cjs');
 
 function safe(value) {
   return String(value || '')
@@ -120,7 +121,7 @@ async function probeMap2PluginRuntime() {
   }
 }
 
-if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
+if (arkEnabled() && String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
   const timer = setTimeout(() => {
     void probeSshExecHash('ARK_GEN1')
       .then(async (result) => {
@@ -134,7 +135,7 @@ if (String(process.env.ARK_GEN1_ENABLED || 'false').toLowerCase() === 'true') {
   timer.unref?.();
 }
 
-if (String(process.env.ARK_MAP2_ENABLED || 'false').toLowerCase() === 'true') {
+if (arkEnabled() && String(process.env.ARK_MAP2_ENABLED || 'false').toLowerCase() === 'true') {
   const timer = setTimeout(() => {
     void probeMap2PluginRuntime();
   }, 8_000);

@@ -4,6 +4,7 @@ const { loadConfig } = require('../shared/config.cjs');
 const { reconcileArnLiveBoard } = require('./arn-live-board-extension.cjs');
 const { registerStartupTask } = require('./startup-coordinator.cjs');
 const { sentinalArnLegacyEnabled } = require('./arn-legacy-mode.cjs');
+const { arnEnabled } = require('../shared/ark-switch.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.arnPollReconcileWorker');
 const DEFAULT_POLL_MS = 30_000;
@@ -23,6 +24,11 @@ function sanitizeError(error) {
 function installArnPollReconcileWorker() {
   if (globalThis[INSTALLED]) return;
   globalThis[INSTALLED] = true;
+
+  if (!arnEnabled()) {
+    console.log('[Nexus Sentinal] ARN poll worker disabled (ARK/ARN switch off).');
+    return;
+  }
 
   if (!sentinalArnLegacyEnabled()) {
     console.log('[Nexus Sentinal] ARN legacy poll worker disabled by SENTINAL_ARN_LEGACY_ENABLED=false');

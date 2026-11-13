@@ -89,7 +89,9 @@ function coordinatesFromText(value) {
 function parseShinyDiscordPayload(payload = {}, authoritativeMap = '') {
   const embed = Array.isArray(payload.embeds) ? payload.embeds[0] || {} : {};
   const title = clean(embed.title || payload.title, 200);
-  const description = clean(embed.description || payload.description || payload.content, 1000);
+  // Strip Discord markdown (bold/italic/underline/strike) so plain-text Shiny
+  // posts parse the same as embeds.
+  const description = clean(embed.description || payload.description || payload.content, 1000).replace(/\*{1,3}/g, '').replace(/_{1,3}/g, '').replace(/~~/g, '');
   const lifecycle = lifecycleFromText(title, description);
   if (!lifecycle) return null;
 

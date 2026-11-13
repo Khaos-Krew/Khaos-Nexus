@@ -3,7 +3,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-require('../src/sentinel/arn-parser-runtime-patch.cjs');
 const { parseShinyDiscordPayload } = require('../src/sentinel/arn-live-board-extension.cjs');
 
 test('parses current plain-text Shiny markdown detection from production', () => {

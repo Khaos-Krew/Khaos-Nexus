@@ -6,6 +6,8 @@
 // Warframe slash commands run on Cephalon Nexus (src/sentinel/cephalon-bot.cjs).
 // Non-command ARK maintenance, HTTP hooks, and panel workers stay here.
 
+const { arkEnabled, arnEnabled } = require('../shared/ark-switch.cjs');
+
 const { installGuildMembersIntentExtension } = require('./guild-members-intent-extension.cjs');
 const { installCommunityIntentsExtension } = require('./community-intents-extension.cjs');
 const { installCommunityLevelingExtension } = require('./community-leveling-extension.cjs');
@@ -40,21 +42,6 @@ const { installMcShopUiExtension } = require('./mc-shop-ui-extension.cjs');
 const { installArkNpShopUi } = require('./ark-np-shop-ui.cjs');
 const { installCoinShopUi } = require('./coin-shop-ui.cjs');
 const { installArkNpDelivery } = require('./ark-np-delivery.cjs');
-
-// ARK control, monitoring, identity, economy and cluster integration.
-const { installArkRconDiagnosticExtension } = require('./ark-rcon-diagnostic-extension.cjs');
-const { installArkStaffUnifiedOpsPanelExtension } = require('./ark-staff-unified-ops-panel-extension.cjs');
-const { installArkConfigDriftAlertExtension } = require('./ark-config-drift-alert-extension.cjs');
-const { installArkIdentityHealthExtension } = require('./ark-identity-health-extension.cjs');
-const { installArkShopProfileHealthExtension } = require('./arkshop-profile-health-extension.cjs');
-const { installArkShopApplyHealthExtension } = require('./arkshop-apply-health-extension.cjs');
-const { installNexusBankHealthExtension } = require('./ark-nexus-bank-health-extension.cjs');
-const { installArkRestartSchedulerExtension } = require('./ark-restart-scheduler-extension.cjs');
-const { installArkAdditionalRegistryBootstrapExtension } = require('./ark-additional-registry-bootstrap-extension.cjs');
-const { installArkClusterMetadataExtension } = require('./ark-cluster-metadata-extension.cjs');
-const { installArkClusterPublicActions } = require('./ark-cluster-public-actions.cjs');
-const { installArkShopProfileBootstrapExtension } = require('./arkshop-profile-bootstrap-extension.cjs');
-const { installArkEconomyPresenceExtension } = require('./ark-economy-presence-extension.cjs');
 
 // Minimal Nexus/Discord core.
 installGuildMembersIntentExtension();
@@ -97,35 +84,61 @@ installArkNpShopUi();
 installCoinShopUi();
 installArkNpDelivery();
 
-// ARK monitors that do not register slash commands stay on the hub bot.
-installArkRconDiagnosticExtension();
-installArkStaffUnifiedOpsPanelExtension();
-installArkConfigDriftAlertExtension();
-installArkIdentityHealthExtension();
-installArkShopProfileHealthExtension();
-installArkShopApplyHealthExtension();
-installNexusBankHealthExtension();
-installArkRestartSchedulerExtension({ prefix: 'ARK_GEN1' });
-installArkAdditionalRegistryBootstrapExtension();
-installArkClusterMetadataExtension();
-installArkEconomyPresenceExtension();
-require('./arkshop-maintenance-monitor.cjs').installArkShopMaintenanceMonitor();
-installArkClusterPublicActions();
-installArkShopProfileBootstrapExtension();
-require('./ark-cluster-plan-extension.cjs').installArkClusterPlanExtension();
-require('./arkshop-cluster-economy-guard.cjs').installArkShopClusterEconomyGuard();
-require('./ark-shiny-config-runtime.cjs').installRuntime();
-require('./ark-dynamic-config-http.cjs');
-require('./ark-identity-webhook-http.cjs');
+// ARK control, monitoring, identity, economy presence, cluster panels and
+// ARK HTTP hooks. All behind NEXUS_ARK_ENABLED (default on) so a paused ARK
+// cluster does not get probed or polled. These monitors register no slash
+// commands. The ARK code stays intact; set NEXUS_ARK_ENABLED=true to restore.
+if (arkEnabled()) {
+  const { installArkRconDiagnosticExtension } = require('./ark-rcon-diagnostic-extension.cjs');
+  const { installArkStaffUnifiedOpsPanelExtension } = require('./ark-staff-unified-ops-panel-extension.cjs');
+  const { installArkConfigDriftAlertExtension } = require('./ark-config-drift-alert-extension.cjs');
+  const { installArkIdentityHealthExtension } = require('./ark-identity-health-extension.cjs');
+  const { installArkShopProfileHealthExtension } = require('./arkshop-profile-health-extension.cjs');
+  const { installArkShopApplyHealthExtension } = require('./arkshop-apply-health-extension.cjs');
+  const { installNexusBankHealthExtension } = require('./ark-nexus-bank-health-extension.cjs');
+  const { installArkRestartSchedulerExtension } = require('./ark-restart-scheduler-extension.cjs');
+  const { installArkAdditionalRegistryBootstrapExtension } = require('./ark-additional-registry-bootstrap-extension.cjs');
+  const { installArkClusterMetadataExtension } = require('./ark-cluster-metadata-extension.cjs');
+  const { installArkClusterPublicActions } = require('./ark-cluster-public-actions.cjs');
+  const { installArkShopProfileBootstrapExtension } = require('./arkshop-profile-bootstrap-extension.cjs');
+  const { installArkEconomyPresenceExtension } = require('./ark-economy-presence-extension.cjs');
+
+  installArkRconDiagnosticExtension();
+  installArkStaffUnifiedOpsPanelExtension();
+  installArkConfigDriftAlertExtension();
+  installArkIdentityHealthExtension();
+  installArkShopProfileHealthExtension();
+  installArkShopApplyHealthExtension();
+  installNexusBankHealthExtension();
+  installArkRestartSchedulerExtension({ prefix: 'ARK_GEN1' });
+  installArkAdditionalRegistryBootstrapExtension();
+  installArkClusterMetadataExtension();
+  installArkEconomyPresenceExtension();
+  require('./arkshop-maintenance-monitor.cjs').installArkShopMaintenanceMonitor();
+  installArkClusterPublicActions();
+  installArkShopProfileBootstrapExtension();
+  require('./ark-cluster-plan-extension.cjs').installArkClusterPlanExtension();
+  require('./arkshop-cluster-economy-guard.cjs').installArkShopClusterEconomyGuard();
+  require('./ark-shiny-config-runtime.cjs').installRuntime();
+  require('./ark-dynamic-config-http.cjs');
+  require('./ark-identity-webhook-http.cjs');
+} else {
+  console.log('[Nexus Sentinal] ARK runtime disabled by NEXUS_ARK_ENABLED=false; ARK monitors, probes, pollers and HTTP hooks were not started.');
+}
 require('./protocol/discord.cjs').installProtocolExtension();
 
 // ARN's Client swap, then the ARN login hooks. Temporary voice below is the
 // last Client swap. bot.cjs destructures Client at load. A Docker -r preload
 // must not install these.
-require('./arn-live-board-extension.cjs').ensureArnGuildMessages();
-installArnIntakeExtension();
-require('./arn-live-board-extension.cjs').installArnLiveBoardExtension();
-require('./arn-cache-extension.cjs').installArnCacheExtension();
+// ARN follows the ARK switch (NEXUS_ARK_ENABLED) and NEXUS_ARN_ENABLED.
+if (arnEnabled()) {
+  require('./arn-live-board-extension.cjs').ensureArnGuildMessages();
+  installArnIntakeExtension();
+  require('./arn-live-board-extension.cjs').installArnLiveBoardExtension();
+  require('./arn-cache-extension.cjs').installArnCacheExtension();
+} else {
+  console.log('[Nexus Sentinal] ARN live board, intake and cache disabled (ARK/ARN switch off).');
+}
 
 // Skyblock Tebex store /shop, workshop guild only by default.
 require('./skyblock-store-extension.cjs').installSkyblockStoreExtension();
