@@ -7,6 +7,7 @@ const { joinValue } = require('../craft/embeds.cjs');
 const { CraftStore, openCraftStore } = require('../craft/store.cjs');
 const { ArkClusterRegistry } = require('./ark-cluster-registry.cjs');
 const { ArkRconConfigStore } = require('./ark-rcon-config-store.cjs');
+const { arkEnabled } = require('../shared/ark-switch.cjs');
 
 const SECRET_TEXT = /password|rcon|token|secret|api[_-]?key|credential/i;
 
@@ -93,7 +94,8 @@ function copyPublicRow(row) {
     status: statusLabel(row.status),
     players: clean(row.players, 40),
     pack: clean(row.pack, 80),
-    packVersion: clean(row.packVersion, 40)
+    packVersion: clean(row.packVersion, 40),
+    mcVersion: clean(row.mcVersion, 40)
   };
   const port = Number(row.probePort);
   const host = clean(row.probeHost, 255);
@@ -120,6 +122,8 @@ function pushRow(rows, seen, row) {
 
 function collectArkRows(registry, env) {
   const rows = [];
+  // NEXUS_ARK_ENABLED=false (ARK paused) keeps ARK off the public lists too.
+  if (!arkEnabled(env)) return rows;
   if (!registry || typeof registry.list !== 'function') return rows;
   const forbidden = arkForbiddenHosts(registry);
   for (const server of registry.list({ includeDisabled: false })) {
@@ -306,6 +310,7 @@ function minecraftPublicEntry(entry) {
   });
   const bedrockText = customBedrockJoin(entry.bedrockJoin);
   const joins = withBedrockJoin(named.joins.filter((join) => safePublicText(join)), entry.bedrockJoin);
+  const mcVersion = typeof entry.mcVersion === 'string' ? safePublicText(clean(entry.mcVersion, 40)) : '';
   const probeHost = clean(host, 255);
   const javaPort = integerPort(entry.javaPort);
   const bedrockPort = integerPort(entry.bedrockPort);
@@ -314,7 +319,7 @@ function minecraftPublicEntry(entry) {
   else if (probeHost && named.kind === 'bedrock' && bedrockPort) probe = { probeHost, probePort: bedrockPort, probeKind: 'bedrock' };
   if (!joins.length) {
     if (group !== 'nexus-craft') return null;
-    return { game: 'Minecraft', name, kind: 'java', joins: [], group, labelOnly: true };
+    return { game: 'Minecraft', name, kind: 'java', joins: [], group, labelOnly: true, mcVersion };
   }
   return {
     game: 'Minecraft',
@@ -323,6 +328,7 @@ function minecraftPublicEntry(entry) {
     joins,
     group,
     labelOnly: false,
+    mcVersion,
     ...probe
   };
 }
@@ -367,6 +373,7 @@ function foldNexusCraftGroup(rows, grouped, env) {
       joins: craft.joins,
       pack: craft.pack,
       packVersion: craft.packVersion,
+      mcVersion: labelOnly ? labelOnly.mcVersion : '',
       ...probeFromJoins(craft.kind, craft.joins)
     };
     children.push(child);
@@ -388,6 +395,7 @@ function foldNexusCraftGroup(rows, grouped, env) {
       name: extra.name,
       kind: extra.kind,
       joins: extra.joins,
+      mcVersion: extra.mcVersion,
       probeHost: extra.probeHost,
       probePort: extra.probePort,
       probeKind: extra.probeKind

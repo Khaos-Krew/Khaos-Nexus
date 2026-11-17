@@ -200,13 +200,19 @@ function renderPublicServerList(rows = []) {
 
 // Minecraft version / loader / advertised modpack from a Java status reply.
 // Configured pack env wins; the advertised pack only fills gaps.
+// A proxy (Velocity/BungeeCord/Waterfall) answers the ping with its own
+// version text, not the game version, so that text is never shown. A
+// configured mcVersion (NEXUS_MINECRAFT_PUBLIC_SERVERS entry) always wins.
+const PROXY_VERSION = /\b(velocity|bungeecord|waterfall|travertine|flamecord)\b/i;
+
 function liveJavaDetails(row, status) {
   if (row.kind === 'bedrock' || !status || typeof status !== 'object') return {};
   const details = {};
   const mcVersion = oneLine(status.version, 40);
-  if (mcVersion) details.mcVersion = mcVersion;
+  const proxy = PROXY_VERSION.test(mcVersion);
+  if (mcVersion && !proxy && !oneLine(row.mcVersion, 40)) details.mcVersion = mcVersion;
   const loader = oneLine(status.loader, 20);
-  if (loader) details.loader = loader;
+  if (loader && !proxy) details.loader = loader;
   const advertised = status.pack && typeof status.pack === 'object' ? status.pack : null;
   const name = oneLine(advertised?.name, 80);
   const version = oneLine(advertised?.version, 40);

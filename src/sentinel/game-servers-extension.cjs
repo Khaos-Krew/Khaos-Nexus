@@ -10,7 +10,8 @@ const {
   groupTrackedServers,
   groupPrivateServersByRank
 } = require('./game-servers-panel.cjs');
-const { collectLivePublicServers, mergePanelServers } = require('./game-servers-live.cjs');
+const { collectLivePublicServers, mergePanelServers, moduleIdFor } = require('./game-servers-live.cjs');
+const { arkEnabled } = require('../shared/ark-switch.cjs');
 const { ServerAlertMonitor, alertsEnabled, runServerAlerts } = require('./server-down-alerts.cjs');
 
 const INSTALLED = Symbol.for('khaos.nexus.gameServers.extension');
@@ -60,7 +61,10 @@ async function refreshGameServersPanel(client, config = {}, options = {}) {
   }
 
   const registryServers = registry.servers || [];
-  const publicServers = mergePanelServers(liveRows, registryServers);
+  // ARK paused (NEXUS_ARK_ENABLED=false): keep registry ARK entries off the panel too.
+  const showArk = arkEnabled(env);
+  const panelRegistry = showArk ? registryServers : registryServers.filter((entry) => moduleIdFor(entry?.game || entry?.gameName || entry?.moduleId) !== 'ark' && String(entry?.moduleId || '') !== 'ark');
+  const publicServers = mergePanelServers(liveRows, panelRegistry);
   const privateServers = registry.privateServers || [];
   const payload = renderGameServersPanel({ servers: publicServers, privateServers });
   const panel = await reconcileGameServersPanel(channelResult.channel, payload, { botId: client.user?.id });
